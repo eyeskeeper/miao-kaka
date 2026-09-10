@@ -1,0 +1,408 @@
+package com.senze.miaokaka.service.impl;
+
+import cn.hutool.core.util.StrUtil;
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.spring.service.impl.ServiceImpl;
+import com.senze.miaokaka.common.ErrorCode;
+import com.senze.miaokaka.constant.CheckInConstant;
+import com.senze.miaokaka.constant.GameConstants;
+import com.senze.miaokaka.constant.NameLibraryConstant;
+import com.senze.miaokaka.exception.BusinessException;
+import com.senze.miaokaka.exception.ThrowUtils;
+import com.senze.miaokaka.mapper.CatSpiritMapper;
+import com.senze.miaokaka.mapper.CheckInPlanMapper;
+import com.senze.miaokaka.mapper.CheckInRecordMapper;
+import com.senze.miaokaka.mapper.UserMapper;
+import com.senze.miaokaka.model.entity.CheckInPlan;
+import com.senze.miaokaka.model.entity.CheckInRecord;
+import com.senze.miaokaka.model.entity.CatSpirit;
+import com.senze.miaokaka.model.entity.User;
+import com.senze.miaokaka.model.vo.CheckInCalendarVO;
+import com.senze.miaokaka.model.vo.CheckInResultVO;
+import com.senze.miaokaka.model.vo.MakeupResultVO;
+import com.senze.miaokaka.service.AiAssistantService;
+import com.senze.miaokaka.service.CatSpiritService;
+import com.senze.miaokaka.service.CheckInPlanService;
+import com.senze.miaokaka.service.CheckInRecordService;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.dao.DuplicateKeyException;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.support.TransactionTemplate;
+
+import java.time.LocalDate;
+import java.time.YearMonth;
+import java.time.format.DateTimeParseException;
+import java.util.Date;
+import java.util.List;
+import java.util.Set;
+import java.util.concurrent.ThreadLocalRandom;
+import java.util.stream.Collectors;
+
+/**
+ * 打卡记录服务实现：事件引擎 + 补卡
+ *
+ * @author <a href="https://github.com/eyeskeeper">冉森</a>
+ */
+@Service
+@RequiredArgsConstructor
+@Slf4j
+public class CheckInRecordServiceImpl extends ServiceImpl<CheckInRecordMapper, CheckInRecord>
+        implements CheckInRecordService {
+
+    private final CheckInPlanService checkInPlanService;
+
+    private final CatSpiritService catSpiritService;
+
+    private final CatSpiritMapper catSpiritMapper;
+
+    private final CheckInPlanMapper checkInPlanMapper;
+
+    private final UserMapper userMapper;
+
+    private final AiAssistantService aiAssistantService;
+
+    private final TransactionTemplate transactionTemplate;
+
+    // region 打卡（事件引擎）
+
+    @Override
+    public CheckInResultVO checkIn(Long userId, Long planId, String remark) {
+        // 事务内完成数据落库与结算，AI 调用放在事务外，避免长事务占住连接
+        CheckInResultVO result = transactionTemplate.execute(status -> doCheckInInTx(userId, planId, remark));
+        result.setEncouragement(aiAssistantService.generateEncouragement(result.getCatName(), result.getEventDesc()));
+        return result;
+    }
+
+    private CheckInResultVO doCheckInInTx(Long userId, Long planId, String remark) {
+        User user = userMapper.selectById(userId);
+        CheckInPlan plan = checkInPlanMapper.selectById(planId);
+        ThrowUtils.throwIf(plan == null, ErrorCode.NOT_FOUND_ERROR, "计划不存在");
+        ThrowUtils.throwIf(!plan.getUserId().equals(userId), ErrorCode.FORBIDDEN_ERROR, "无权操作该计划");
+        ThrowUtils.throwIf(plan.getStatus() != CheckInConstant.PLAN_STATUS_ACTIVE,
+                ErrorCode.OPERATION_ERROR, "计划不在进行中，请先恢复计划");
+        LocalDate today = LocalDate.now(CheckInConstant.BIZ_ZONE);
+        CatSpirit cat = catSpiritService.getByPlanId(planId);
+        ThrowUtils.throwIf(cat == null, ErrorCode.SYSTEM_ERROR, "猫精灵数据缺失");
+
+        CheckInResultVO vo = new CheckInResultVO();
+        vo.setCheckInDate(today);
+        vo.setRemark(StrUtil.blankToDefault(remark, null));
+        vo.setCatName(cat.getCatName());
+        vo.setLevelUp(false);
+        vo.setBossDefeated(false);
+
+        // 1. 打卡记录（唯一键兜底并发双击）
+        CheckInRecord record = new CheckInRecord();
+        record.setUserId(userId);
+        record.setPlanId(planId);
+        record.setCheckInDate(today);
+        record.setCheckInTime(new Date());
+        record.setStatus(CheckInConstant.RECORD_STATUS_NORMAL);
+        record.setRemark(StrUtil.blankToDefault(remark, null));
+        try {
+            save(record);
+        } catch (DuplicateKeyException e) {
+            throw new BusinessException(ErrorCode.OPERATION_ERROR, "今天已经打过卡啦，明天再来");
+        }
+
+        // 2. 计划连击：昨天有记录则 +1，否则从 1 重算
+        boolean yesterdayChecked = existsRecord(userId, planId, today.minusDays(1));
+        int newStreak = yesterdayChecked ? plan.getCurrentStreak() + 1 : 1;
+        plan.setCurrentStreak(newStreak);
+        plan.setMaxStreak(Math.max(plan.getMaxStreak() == null ? 0 : plan.getMaxStreak(), newStreak));
+        vo.setCurrentStreak(plan.getCurrentStreak());
+        vo.setMaxStreak(plan.getMaxStreak());
+
+        // 3. 事件：1~70 攻击 / 71~95 属性提升 / 96~100 暴击
+        int expGained = GameConstants.EXP_PER_CHECK_IN;
+        int pointsEarned = GameConstants.POINTS_PER_CHECK_IN;
+        int roll = ThreadLocalRandom.current().nextInt(1, 101);
+        if (roll <= GameConstants.EVENT_ATTACK_MAX || roll > GameConstants.EVENT_STAT_MAX) {
+            EventReward reward = resolveAttack(cat, newStreak, roll > GameConstants.EVENT_STAT_MAX, vo);
+            expGained += reward.expBonus();
+            pointsEarned += reward.pointsBonus();
+        } else {
+            resolveStatBoost(cat, vo);
+        }
+
+        // 4. 经验结算与升级（升级三维各 +10%，并回满血）
+        int exp = cat.getExperience() + expGained;
+        int level = cat.getLevel();
+        boolean levelUp = false;
+        while (exp >= CatSpiritServiceImpl.expToNextLevel(level)) {
+            exp -= CatSpiritServiceImpl.expToNextLevel(level);
+            level++;
+            levelUp = true;
+            cat.setAttack(grow(cat.getAttack()));
+            cat.setDefense(grow(cat.getDefense()));
+            cat.setMaxHp(grow(cat.getMaxHp()));
+            cat.setCurrentHp(cat.getMaxHp());
+        }
+        cat.setExperience(exp);
+        cat.setLevel(level);
+        vo.setLevel(level);
+        vo.setLevelUp(levelUp);
+        catSpiritMapper.updateById(cat);
+
+        // 5. 积分：打卡基础分 + 连击每满 7 天里程碑奖励
+        if (newStreak % GameConstants.POINTS_STREAK_MILESTONE == 0) {
+            pointsEarned += GameConstants.POINTS_STREAK_MILESTONE_BONUS;
+        }
+
+        // 6. 全勤连击：本次打卡若恰好补齐"全部进行中计划"，按昨日是否全勤累计/重置
+        refreshFullAttendanceStreak(user, today);
+
+        // 7. 积分落库
+        User freshUser = userMapper.selectById(userId);
+        freshUser.setTotalPoints(freshUser.getTotalPoints() + pointsEarned);
+        userMapper.updateById(freshUser);
+        vo.setExpGained(expGained);
+        vo.setPointsEarned(pointsEarned);
+        vo.setTotalPoints(freshUser.getTotalPoints());
+
+        checkInPlanMapper.updateById(plan);
+        return vo;
+    }
+
+    /**
+     * 攻击/暴击事件；若击败 BOSS 则结算奖励并刷新下一只满血 BOSS
+     */
+    private EventReward resolveAttack(CatSpirit cat, int streak, boolean isCrit, CheckInResultVO vo) {
+        double factor = GameConstants.DAMAGE_MIN_FACTOR
+                + ThreadLocalRandom.current().nextDouble(GameConstants.DAMAGE_MAX_FACTOR - GameConstants.DAMAGE_MIN_FACTOR);
+        double damage = cat.getAttack() * (1 + streak * GameConstants.STREAK_DAMAGE_BONUS_PER_DAY) * factor;
+        if (isCrit) {
+            damage *= GameConstants.CRIT_DAMAGE_MULTIPLIER;
+        }
+        int realDamage = Math.max(1, (int) Math.round(damage));
+        int hpBefore = cat.getBossHp();
+        int hpAfter = Math.max(0, hpBefore - realDamage);
+        cat.setBossHp(hpAfter);
+
+        vo.setEventType(isCrit ? CheckInConstant.EVENT_TYPE_CRIT : CheckInConstant.EVENT_TYPE_ATTACK);
+        vo.setBossName(cat.getBossName());
+        vo.setBossHpBefore(hpBefore);
+        vo.setBossHpAfter(hpAfter);
+        vo.setDamage(realDamage);
+        vo.setEventDesc(isCrit
+                ? String.format("会心一击！%s 扑向 %s，造成 %d 点伤害！", cat.getCatName(), cat.getBossName(), realDamage)
+                : String.format("%s 扑向 %s，造成 %d 点伤害！", cat.getCatName(), cat.getBossName(), realDamage));
+
+        if (hpAfter > 0) {
+            return new EventReward(0, 0);
+        }
+        int expBonus = GameConstants.EXP_PER_BOSS_KILL_BASE * cat.getBossLevel();
+        int pointsBonus = GameConstants.POINTS_PER_BOSS_KILL_BASE * cat.getBossLevel();
+        cat.setTotalBossDefeated(cat.getTotalBossDefeated() + 1);
+        int newBossLevel = cat.getBossLevel() + 1;
+        int newBossHp = CatSpiritServiceImpl.bossMaxHp(newBossLevel);
+        String oldBossName = cat.getBossName();
+        cat.setBossLevel(newBossLevel);
+        cat.setBossMaxHp(newBossHp);
+        cat.setBossHp(newBossHp);
+        cat.setBossName(NameLibraryConstant.randomBossName());
+        vo.setBossDefeated(true);
+        vo.setNewBossLevel(newBossLevel);
+        vo.setNewBossName(cat.getBossName());
+        vo.setNewBossMaxHp(newBossHp);
+        vo.setEventDesc(vo.getEventDesc() + String.format(" %s 倒下了！下一只 BOSS %s（Lv.%d）登场！",
+                oldBossName, cat.getBossName(), newBossLevel));
+        return new EventReward(expBonus, pointsBonus);
+    }
+
+    private void resolveStatBoost(CatSpirit cat, CheckInResultVO vo) {
+        int gain = ThreadLocalRandom.current().nextInt(
+                GameConstants.STAT_BOOST_MIN, GameConstants.STAT_BOOST_MAX + 1);
+        int pick = ThreadLocalRandom.current().nextInt(3);
+        switch (pick) {
+            case 0 -> {
+                cat.setAttack(cat.getAttack() + gain);
+                vo.setStatName("attack");
+                vo.setEventDesc(String.format("%s 磨了磨爪子，攻击力提升 %d 点！", cat.getCatName(), gain));
+            }
+            case 1 -> {
+                cat.setDefense(cat.getDefense() + gain);
+                vo.setStatName("defense");
+                vo.setEventDesc(String.format("%s 打了个滚，皮毛更厚实了，防御力提升 %d 点！", cat.getCatName(), gain));
+            }
+            default -> {
+                cat.setMaxHp(cat.getMaxHp() + gain);
+                cat.setCurrentHp(cat.getCurrentHp() + gain);
+                vo.setStatName("hp");
+                vo.setEventDesc(String.format("%s 找到了猫薄荷，精力充沛，生命上限提升 %d 点！", cat.getCatName(), gain));
+            }
+        }
+        vo.setEventType(CheckInConstant.EVENT_TYPE_STAT);
+        vo.setStatGain(gain);
+    }
+
+    /**
+     * 事件奖励（BOSS 击败加成）
+     */
+    private record EventReward(int expBonus, int pointsBonus) {
+    }
+
+    // endregion
+
+    // region 补卡
+
+    @Override
+    public MakeupResultVO makeup(Long userId, Long planId, String date) {
+        LocalDate makeupDate;
+        try {
+            makeupDate = LocalDate.parse(date);
+        } catch (DateTimeParseException e) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "日期格式应为 yyyy-MM-dd");
+        }
+        return transactionTemplate.execute(status -> doMakeupInTx(userId, planId, makeupDate));
+    }
+
+    private MakeupResultVO doMakeupInTx(Long userId, Long planId, LocalDate makeupDate) {
+        User user = userMapper.selectById(userId);
+        CheckInPlan plan = checkInPlanService.getOwnedPlan(userId, planId);
+
+        LocalDate today = LocalDate.now(CheckInConstant.BIZ_ZONE);
+        ThrowUtils.throwIf(!makeupDate.isBefore(today), ErrorCode.PARAMS_ERROR, "只能补今天之前的卡");
+        ThrowUtils.throwIf(makeupDate.isBefore(today.minusDays(GameConstants.MAKEUP_MAX_LOOKBACK_DAYS)),
+                ErrorCode.PARAMS_ERROR, "最多只能补最近 " + GameConstants.MAKEUP_MAX_LOOKBACK_DAYS + " 天内的卡");
+        LocalDate planCreatedDate = plan.getCreateTime().toInstant().atZone(CheckInConstant.BIZ_ZONE).toLocalDate();
+        ThrowUtils.throwIf(makeupDate.isBefore(planCreatedDate), ErrorCode.PARAMS_ERROR, "补卡日期不能早于计划创建日期");
+        ThrowUtils.throwIf(existsRecord(userId, planId, makeupDate), ErrorCode.PARAMS_ERROR, "该日期已有打卡记录");
+
+        // 自然月限额（用户维度）
+        long used = count(new LambdaQueryWrapper<CheckInRecord>()
+                .eq(CheckInRecord::getUserId, userId)
+                .eq(CheckInRecord::getStatus, CheckInConstant.RECORD_STATUS_MAKEUP)
+                .ge(CheckInRecord::getCheckInDate, makeupDate.withDayOfMonth(1))
+                .le(CheckInRecord::getCheckInDate, makeupDate.withDayOfMonth(makeupDate.lengthOfMonth())));
+        ThrowUtils.throwIf(used >= GameConstants.MAKEUP_MONTHLY_LIMIT,
+                ErrorCode.OPERATION_ERROR, "本月补卡次数已用完（每月 " + GameConstants.MAKEUP_MONTHLY_LIMIT + " 次）");
+        ThrowUtils.throwIf(user.getTotalPoints() < GameConstants.MAKEUP_COST,
+                ErrorCode.OPERATION_ERROR, "积分不足，补卡需要 " + GameConstants.MAKEUP_COST + " 积分");
+
+        // 扣积分 + 落补卡记录
+        user.setTotalPoints(user.getTotalPoints() - GameConstants.MAKEUP_COST);
+        userMapper.updateById(user);
+        CheckInRecord record = new CheckInRecord();
+        record.setUserId(userId);
+        record.setPlanId(planId);
+        record.setCheckInDate(makeupDate);
+        record.setCheckInTime(new Date());
+        record.setStatus(CheckInConstant.RECORD_STATUS_MAKEUP);
+        save(record);
+
+        // 从最近打卡日回溯重算计划连击（补上缺口可恢复断链）
+        recomputePlanStreak(plan, userId, today);
+        checkInPlanMapper.updateById(plan);
+
+        MakeupResultVO vo = new MakeupResultVO();
+        vo.setCheckInDate(makeupDate);
+        vo.setPointsCost(GameConstants.MAKEUP_COST);
+        vo.setTotalPoints(user.getTotalPoints());
+        vo.setCurrentStreak(plan.getCurrentStreak());
+        vo.setMaxStreak(plan.getMaxStreak());
+        return vo;
+    }
+
+    /**
+     * 连击 = 从今天（若今天有记录）或最近一个打卡日起往前的连续天数
+     */
+    private void recomputePlanStreak(CheckInPlan plan, Long userId, LocalDate today) {
+        Set<LocalDate> dates = list(new LambdaQueryWrapper<CheckInRecord>()
+                        .eq(CheckInRecord::getUserId, userId)
+                        .eq(CheckInRecord::getPlanId, plan.getId())
+                        .le(CheckInRecord::getCheckInDate, today))
+                .stream()
+                .map(CheckInRecord::getCheckInDate)
+                .collect(Collectors.toSet());
+        int streak = 0;
+        LocalDate cursor = dates.contains(today) ? today
+                : dates.stream().filter(d -> d.isBefore(today)).max(LocalDate::compareTo).orElse(null);
+        while (cursor != null && dates.contains(cursor)) {
+            streak++;
+            cursor = cursor.minusDays(1);
+        }
+        plan.setCurrentStreak(streak);
+        plan.setMaxStreak(Math.max(plan.getMaxStreak() == null ? 0 : plan.getMaxStreak(), streak));
+    }
+
+    // endregion
+
+    // region 日历查询
+
+    @Override
+    public CheckInCalendarVO calendar(Long userId, Long planId, String month) {
+        checkInPlanService.getOwnedPlan(userId, planId);
+        YearMonth yearMonth;
+        if (StrUtil.isBlank(month)) {
+            yearMonth = YearMonth.from(LocalDate.now(CheckInConstant.BIZ_ZONE));
+        } else {
+            try {
+                yearMonth = YearMonth.parse(month);
+            } catch (DateTimeParseException e) {
+                throw new BusinessException(ErrorCode.PARAMS_ERROR, "月份格式应为 yyyy-MM");
+            }
+        }
+        List<CheckInRecord> records = list(new LambdaQueryWrapper<CheckInRecord>()
+                .eq(CheckInRecord::getUserId, userId)
+                .eq(CheckInRecord::getPlanId, planId)
+                .ge(CheckInRecord::getCheckInDate, yearMonth.atDay(1))
+                .le(CheckInRecord::getCheckInDate, yearMonth.atEndOfMonth()));
+        CheckInCalendarVO vo = new CheckInCalendarVO();
+        vo.setPlanId(planId);
+        vo.setMonth(yearMonth.toString());
+        vo.setDays(records.stream().map(r -> {
+            CheckInCalendarVO.DayRecord day = new CheckInCalendarVO.DayRecord();
+            day.setDate(r.getCheckInDate());
+            day.setStatus(r.getStatus());
+            day.setRemark(r.getRemark());
+            return day;
+        }).toList());
+        return vo;
+    }
+
+    // endregion
+
+    // region 私有工具
+
+    private boolean existsRecord(Long userId, Long planId, LocalDate date) {
+        return baseMapper.exists(new LambdaQueryWrapper<CheckInRecord>()
+                .eq(CheckInRecord::getUserId, userId)
+                .eq(CheckInRecord::getPlanId, planId)
+                .eq(CheckInRecord::getCheckInDate, date));
+    }
+
+    /**
+     * 全勤连击：当天全部进行中计划都有记录时，按昨天是否全勤来 +1 或重置为 1
+     * （以当前活跃计划数为基准的近似实现，暂停/新建计划的跨日边界不回溯修正）
+     */
+    private void refreshFullAttendanceStreak(User user, LocalDate today) {
+        long activePlanCount = checkInPlanMapper.selectCount(new LambdaQueryWrapper<CheckInPlan>()
+                .eq(CheckInPlan::getUserId, user.getId())
+                .eq(CheckInPlan::getStatus, CheckInConstant.PLAN_STATUS_ACTIVE));
+        if (activePlanCount <= 0) {
+            return;
+        }
+        long todayRecordCount = count(new LambdaQueryWrapper<CheckInRecord>()
+                .eq(CheckInRecord::getUserId, user.getId())
+                .eq(CheckInRecord::getCheckInDate, today));
+        if (todayRecordCount < activePlanCount) {
+            return;
+        }
+        long yesterdayRecordCount = count(new LambdaQueryWrapper<CheckInRecord>()
+                .eq(CheckInRecord::getUserId, user.getId())
+                .eq(CheckInRecord::getCheckInDate, today.minusDays(1)));
+        int fullStreak = yesterdayRecordCount >= activePlanCount
+                ? (user.getCurrentStreak() == null ? 0 : user.getCurrentStreak()) + 1
+                : 1;
+        user.setCurrentStreak(fullStreak);
+        userMapper.updateById(user);
+    }
+
+    private int grow(int value) {
+        return Math.max(1, (int) Math.round(value * (1 + GameConstants.LEVEL_UP_GROWTH)));
+    }
+
+    // endregion
+}

@@ -1,0 +1,31 @@
+package com.senze.miaokaka.service;
+
+import com.baomidou.mybatisplus.spring.service.IService;
+import com.senze.miaokaka.model.entity.CheckInRecord;
+import com.senze.miaokaka.model.vo.CheckInCalendarVO;
+import com.senze.miaokaka.model.vo.CheckInResultVO;
+import com.senze.miaokaka.model.vo.MakeupResultVO;
+
+/**
+ * 打卡记录服务（含打卡事件引擎与补卡）
+ *
+ * @author <a href="https://github.com/eyeskeeper">冉森</a>
+ */
+public interface CheckInRecordService extends IService<CheckInRecord> {
+
+    /**
+     * 打卡：触发一次随机事件（攻击BOSS/属性提升/暴击），返回事件过程与成长结算。
+     * AI 鼓励语在事务提交后生成，失败自动降级本地语录，不影响打卡结果。
+     */
+    CheckInResultVO checkIn(Long userId, Long planId, String remark);
+
+    /**
+     * 补卡：扣积分、自然月限次、恢复连击；不触发事件
+     */
+    MakeupResultVO makeup(Long userId, Long planId, String date);
+
+    /**
+     * 某计划某月打卡日历
+     */
+    CheckInCalendarVO calendar(Long userId, Long planId, String month);
+}

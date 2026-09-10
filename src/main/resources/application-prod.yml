@@ -1,0 +1,25 @@
+# 生产环境配置：敏感信息一律走环境变量，不进代码与镜像
+spring:
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    url: jdbc:mysql://${MYSQL_HOST:mysql}:${MYSQL_PORT:3306}/${MYSQL_DB:miaokaka}?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai
+    username: ${MYSQL_USERNAME:root}
+    password: ${MYSQL_PASSWORD:}
+  ai:
+    deepseek:
+      api-key: ${DEEPSEEK_API_KEY:}
+
+jwt:
+  secret: ${JWT_SECRET:}
+  expire-days: ${JWT_EXPIRE_DAYS:7}
+
+server:
+  servlet:
+    context-path: /api
+  port: 18089
+
+springdoc:
+  swagger-ui:
+    enabled: ${SWAGGER_ENABLED:false}
+  api-docs:
+    enabled: ${SWAGGER_ENABLED:false}

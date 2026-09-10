@@ -1,0 +1,35 @@
+spring:
+  application:
+    name: miaokaka
+  profiles:
+    active: local
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    url: jdbc:mysql://localhost:3306/my_db
+    username: root
+    password: 123456
+
+server:
+  servlet:
+    context-path: /api
+  port: 18089
+
+# JWT（生产环境用环境变量覆盖 secret）
+jwt:
+  secret: miao-kaka-dev-secret-do-not-use-in-prod
+  expire-days: 7
+
+
+# springdoc-openapi
+springdoc:
+  swagger-ui:
+    enabled: true
+    path: /swagger-ui.html
+    tags-sorter: alpha
+    operations-sorter: alpha
+  api-docs:
+    enabled: true
+    path: /v3/api-docs
+
+  paths-to-match: '/**'
+  packages-to-scan: com.senze.miaokaka.controller
