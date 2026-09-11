@@ -6,6 +6,7 @@ target/
 
 application-local.yml
 .env
+data/
 ### STS ###
 .apt_generated
 .classpath

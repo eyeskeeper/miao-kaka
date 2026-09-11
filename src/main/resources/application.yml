@@ -8,6 +8,10 @@ spring:
     url: jdbc:mysql://localhost:3306/my_db
     username: root
     password: 123456
+  servlet:
+    multipart:
+      max-file-size: 5MB
+      max-request-size: 6MB
 
 server:
   servlet:
@@ -19,6 +23,18 @@ jwt:
   secret: miao-kaka-dev-secret-do-not-use-in-prod
   expire-days: 7
 
+# 应用自定义配置
+app:
+  # 上传图片存储目录（本地磁盘实现，二期可换 OSS）
+  upload-dir: ./data/uploads
+  ai:
+    vision:
+      # 智谱 GLM-4V 凭证预审开关（未配 key 时自动退化为纯组长人工审核）
+      enabled: false
+      base-url: https://open.bigmodel.cn/api/paas/v4
+      api-key:
+      model: glm-4v-flash
+      timeout-seconds: 8
 
 # springdoc-openapi
 springdoc:

@@ -8,83 +8,79 @@ import com.baomidou.mybatisplus.annotation.TableName;
 import lombok.Data;
 
 import java.io.Serializable;
+import java.time.LocalDate;
 import java.util.Date;
 
 /**
- * 用户
+ * 习惯死斗挑战
  *
- * @TableName user
+ * @TableName duel
  * @author <a href="https://github.com/eyeskeeper">冉森</a>
  */
-@TableName(value = "user")
+@TableName(value = "duel")
 @Data
-public class User implements Serializable {
+public class Duel implements Serializable {
 
     /**
-     * id
+     * 死斗id
      */
     @TableId(type = IdType.AUTO)
     private Long id;
 
     /**
-     * 账号
+     * 死斗名称
      */
-    private String userAccount;
+    private String duelName;
 
     /**
-     * 密码（BCrypt 摘要）
+     * 死斗描述
      */
-    private String userPassword;
+    private String duelDesc;
 
     /**
-     * 微信开放平台id（二期）
+     * 组长id（创建者）
      */
-    private String unionId;
+    private Long leaderId;
 
     /**
-     * 手机号
+     * 每人押金（喵币）
      */
-    private String phone;
+    private Integer depositPerMember;
 
     /**
-     * 公众号openid（二期）
+     * 挑战天数
      */
-    private String mpOpenId;
+    private Integer totalDays;
 
     /**
-     * 用户昵称
+     * 开始日期（北京时间）
      */
-    private String userName;
+    private LocalDate startDate;
 
     /**
-     * 用户头像
+     * 结束日期 = 开始日期 + total_days - 1
      */
-    private String userAvatar;
+    private LocalDate endDate;
 
     /**
-     * 用户简介
+     * 状态 (0:招募中, 1:进行中, 2:已结算, 3:已解散)
      */
-    private String userProfile;
+    private Integer status;
 
     /**
-     * 用户角色：user/admin/ban
+     * 当前人数（冗余）
      */
-    private String userRole;
+    private Integer memberCount;
 
     /**
-     * 全勤连击天数（当天全部进行中计划都完成才累计）
+     * 当前奖池总额（人数×押金，冗余）
      */
-    private Integer currentStreak;
+    private Integer totalPool;
 
     /**
-     * 当前可用积分余额
+     * 结算是否完成（幂等标记）
      */
-    private Integer totalPoints;
-
-    /**
-     * 喵币余额（押金货币，注册赠送1000）
-     */
-    private Integer miaoCoins;
+    private Integer settled;
 
     /**
      * 创建时间

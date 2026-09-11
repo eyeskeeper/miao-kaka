@@ -38,4 +38,9 @@ public interface CheckInPlanService extends IService<CheckInPlan> {
      * 校验计划存在且属于该用户，否则抛异常
      */
     CheckInPlan getOwnedPlan(Long userId, Long planId);
+
+    /**
+     * 为死斗成员创建影子计划（自动生成猫，复用打卡引擎）
+     */
+    CheckInPlan createShadowPlan(Long userId, String duelName, int totalDays, Long duelId);
 }

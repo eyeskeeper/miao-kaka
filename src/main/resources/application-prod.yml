@@ -13,6 +13,17 @@ jwt:
   secret: ${JWT_SECRET:}
   expire-days: ${JWT_EXPIRE_DAYS:7}
 
+# 自定义配置（生产）
+app:
+  upload-dir: ${UPLOAD_DIR:/data/uploads}
+  ai:
+    vision:
+      enabled: ${VISION_ENABLED:false}
+      base-url: https://open.bigmodel.cn/api/paas/v4
+      api-key: ${ZHIPU_VISION_API_KEY:}
+      model: ${VISION_MODEL:glm-4v-flash}
+      timeout-seconds: 8
+
 server:
   servlet:
     context-path: /api

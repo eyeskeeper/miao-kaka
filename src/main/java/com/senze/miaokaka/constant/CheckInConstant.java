@@ -23,10 +23,20 @@ public interface CheckInConstant {
 
     // endregion
 
+    // region 计划来源
+
+    int PLAN_SOURCE_PERSONAL = 0;
+    int PLAN_SOURCE_TEAM_TEMPLATE = 1;
+    int PLAN_SOURCE_DUEL = 2;
+
+    // endregion
+
     // region 打卡记录状态
 
     int RECORD_STATUS_NORMAL = 0;
     int RECORD_STATUS_MAKEUP = 1;
+    int RECORD_STATUS_ABNORMAL = 2;
+    int RECORD_STATUS_PENDING = 3;
 
     // endregion
 

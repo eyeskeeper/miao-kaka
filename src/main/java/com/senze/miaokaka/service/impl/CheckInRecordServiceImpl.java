@@ -5,6 +5,7 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.spring.service.impl.ServiceImpl;
 import com.senze.miaokaka.common.ErrorCode;
 import com.senze.miaokaka.constant.CheckInConstant;
+import com.senze.miaokaka.constant.DuelConstant;
 import com.senze.miaokaka.constant.GameConstants;
 import com.senze.miaokaka.constant.NameLibraryConstant;
 import com.senze.miaokaka.exception.BusinessException;
@@ -40,7 +41,7 @@ import java.util.concurrent.ThreadLocalRandom;
 import java.util.stream.Collectors;
 
 /**
- * 打卡记录服务实现：事件引擎 + 补卡
+ * 打卡记录服务实现：事件引擎 + 补卡 + 死斗审核通过结算
  *
  * @author <a href="https://github.com/eyeskeeper">冉森</a>
  */
@@ -79,6 +80,9 @@ public class CheckInRecordServiceImpl extends ServiceImpl<CheckInRecordMapper, C
         CheckInPlan plan = checkInPlanMapper.selectById(planId);
         ThrowUtils.throwIf(plan == null, ErrorCode.NOT_FOUND_ERROR, "计划不存在");
         ThrowUtils.throwIf(!plan.getUserId().equals(userId), ErrorCode.FORBIDDEN_ERROR, "无权操作该计划");
+        // 影子计划通道封闭：死斗打卡必须走死斗入口（照片凭证 + 审核）
+        ThrowUtils.throwIf(plan.getPlanSource() != null && plan.getPlanSource() == CheckInConstant.PLAN_SOURCE_DUEL,
+                ErrorCode.OPERATION_ERROR, "死斗计划请通过死斗打卡入口提交凭证");
         ThrowUtils.throwIf(plan.getStatus() != CheckInConstant.PLAN_STATUS_ACTIVE,
                 ErrorCode.OPERATION_ERROR, "计划不在进行中，请先恢复计划");
         LocalDate today = LocalDate.now(CheckInConstant.BIZ_ZONE);
@@ -114,19 +118,72 @@ public class CheckInRecordServiceImpl extends ServiceImpl<CheckInRecordMapper, C
         vo.setCurrentStreak(plan.getCurrentStreak());
         vo.setMaxStreak(plan.getMaxStreak());
 
-        // 3. 事件：1~70 攻击 / 71~95 属性提升 / 96~100 暴击
+        applyGrowthAndPoints(user, plan, cat, vo);
+        return vo;
+    }
+
+    @Override
+    public CheckInResultVO settleApprovedCheckIn(Long userId, Long planId, Long recordId) {
+        CheckInResultVO result = transactionTemplate.execute(status -> doSettleApprovedInTx(userId, planId, recordId));
+        result.setEncouragement(aiAssistantService.generateEncouragement(result.getCatName(), result.getEventDesc()));
+        return result;
+    }
+
+    /**
+     * 死斗凭证审核通过的结算：记录置为正常、回溯重算连击、事件在通过那一刻才触发
+     */
+    private CheckInResultVO doSettleApprovedInTx(Long userId, Long planId, Long recordId) {
+        User user = userMapper.selectById(userId);
+        CheckInPlan plan = checkInPlanMapper.selectById(planId);
+        ThrowUtils.throwIf(plan == null || !plan.getUserId().equals(userId),
+                ErrorCode.NOT_FOUND_ERROR, "影子计划不存在");
+        CheckInRecord record = getById(recordId);
+        ThrowUtils.throwIf(record == null
+                        || !record.getUserId().equals(userId)
+                        || !record.getPlanId().equals(planId),
+                ErrorCode.NOT_FOUND_ERROR, "打卡记录不存在");
+        ThrowUtils.throwIf(record.getStatus() != CheckInConstant.RECORD_STATUS_PENDING,
+                ErrorCode.OPERATION_ERROR, "该记录不在待审核状态");
+        CatSpirit cat = catSpiritService.getByPlanId(planId);
+        ThrowUtils.throwIf(cat == null, ErrorCode.SYSTEM_ERROR, "猫精灵数据缺失");
+
+        record.setStatus(CheckInConstant.RECORD_STATUS_NORMAL);
+        updateById(record);
+
+        LocalDate today = LocalDate.now(CheckInConstant.BIZ_ZONE);
+        recomputePlanStreak(plan, userId, today);
+
+        CheckInResultVO vo = new CheckInResultVO();
+        vo.setCheckInDate(record.getCheckInDate());
+        vo.setRemark(record.getRemark());
+        vo.setCatName(cat.getCatName());
+        vo.setLevelUp(false);
+        vo.setBossDefeated(false);
+        vo.setCurrentStreak(plan.getCurrentStreak());
+        vo.setMaxStreak(plan.getMaxStreak());
+        applyGrowthAndPoints(user, plan, cat, vo);
+        return vo;
+    }
+
+    /**
+     * 事件 + 成长 + 积分的共用结算（普通打卡与死斗审核通过共用）。
+     * 调用前需已设置 plan.currentStreak / vo 的连击与猫名等基础字段。
+     */
+    private void applyGrowthAndPoints(User user, CheckInPlan plan, CatSpirit cat, CheckInResultVO vo) {
+        // 1. 事件：1~70 攻击 / 71~95 属性提升 / 96~100 暴击
         int expGained = GameConstants.EXP_PER_CHECK_IN;
         int pointsEarned = GameConstants.POINTS_PER_CHECK_IN;
         int roll = ThreadLocalRandom.current().nextInt(1, 101);
         if (roll <= GameConstants.EVENT_ATTACK_MAX || roll > GameConstants.EVENT_STAT_MAX) {
-            EventReward reward = resolveAttack(cat, newStreak, roll > GameConstants.EVENT_STAT_MAX, vo);
+            EventReward reward = resolveAttack(cat, plan.getCurrentStreak(),
+                    roll > GameConstants.EVENT_STAT_MAX, vo);
             expGained += reward.expBonus();
             pointsEarned += reward.pointsBonus();
         } else {
             resolveStatBoost(cat, vo);
         }
 
-        // 4. 经验结算与升级（升级三维各 +10%，并回满血）
+        // 2. 经验结算与升级（升级三维各 +10%，并回满血）
         int exp = cat.getExperience() + expGained;
         int level = cat.getLevel();
         boolean levelUp = false;
@@ -145,16 +202,16 @@ public class CheckInRecordServiceImpl extends ServiceImpl<CheckInRecordMapper, C
         vo.setLevelUp(levelUp);
         catSpiritMapper.updateById(cat);
 
-        // 5. 积分：打卡基础分 + 连击每满 7 天里程碑奖励
-        if (newStreak % GameConstants.POINTS_STREAK_MILESTONE == 0) {
+        // 3. 积分：打卡基础分 + 连击每满 7 天里程碑奖励
+        if (plan.getCurrentStreak() % GameConstants.POINTS_STREAK_MILESTONE == 0) {
             pointsEarned += GameConstants.POINTS_STREAK_MILESTONE_BONUS;
         }
 
-        // 6. 全勤连击：本次打卡若恰好补齐"全部进行中计划"，按昨日是否全勤累计/重置
-        refreshFullAttendanceStreak(user, today);
+        // 4. 全勤连击：本次若恰好补齐"全部进行中计划"，按昨日是否全勤累计/重置
+        refreshFullAttendanceStreak(user, LocalDate.now(CheckInConstant.BIZ_ZONE));
 
-        // 7. 积分落库
-        User freshUser = userMapper.selectById(userId);
+        // 5. 积分落库
+        User freshUser = userMapper.selectById(user.getId());
         freshUser.setTotalPoints(freshUser.getTotalPoints() + pointsEarned);
         userMapper.updateById(freshUser);
         vo.setExpGained(expGained);
@@ -162,7 +219,6 @@ public class CheckInRecordServiceImpl extends ServiceImpl<CheckInRecordMapper, C
         vo.setTotalPoints(freshUser.getTotalPoints());
 
         checkInPlanMapper.updateById(plan);
-        return vo;
     }
 
     /**
@@ -261,6 +317,9 @@ public class CheckInRecordServiceImpl extends ServiceImpl<CheckInRecordMapper, C
     private MakeupResultVO doMakeupInTx(Long userId, Long planId, LocalDate makeupDate) {
         User user = userMapper.selectById(userId);
         CheckInPlan plan = checkInPlanService.getOwnedPlan(userId, planId);
+        // 影子计划通道封闭：死斗缺卡直接按比例没收，不允许补卡
+        ThrowUtils.throwIf(plan.getPlanSource() != null && plan.getPlanSource() == CheckInConstant.PLAN_SOURCE_DUEL,
+                ErrorCode.OPERATION_ERROR, "死斗计划不支持补卡，缺卡将按比例没收押金");
 
         LocalDate today = LocalDate.now(CheckInConstant.BIZ_ZONE);
         ThrowUtils.throwIf(!makeupDate.isBefore(today), ErrorCode.PARAMS_ERROR, "只能补今天之前的卡");
@@ -306,12 +365,13 @@ public class CheckInRecordServiceImpl extends ServiceImpl<CheckInRecordMapper, C
     }
 
     /**
-     * 连击 = 从今天（若今天有记录）或最近一个打卡日起往前的连续天数
+     * 连击 = 从指定锚点日（当天有记录则当天，否则最近一个打卡日）往前的连续天数
      */
     private void recomputePlanStreak(CheckInPlan plan, Long userId, LocalDate today) {
         Set<LocalDate> dates = list(new LambdaQueryWrapper<CheckInRecord>()
                         .eq(CheckInRecord::getUserId, userId)
                         .eq(CheckInRecord::getPlanId, plan.getId())
+                        .eq(CheckInRecord::getStatus, CheckInConstant.RECORD_STATUS_NORMAL)
                         .le(CheckInRecord::getCheckInDate, today))
                 .stream()
                 .map(CheckInRecord::getCheckInDate)

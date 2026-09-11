@@ -4,7 +4,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 项目概述
 
-miao-kaka（喵卡卡）是一个打卡类应用的 Spring Boot 后端：用户创建打卡计划（每计划自动领养一只"猫精灵"），每日按计划打卡触发随机事件（攻击 BOSS / 属性提升 / 暴击），连续打卡获得连击加成，积分可用于补卡。接入 Spring AI（DeepSeek）实现 AI 生成打卡计划草稿与打卡后的猫口吻鼓励语。一期范围：用户认证（JWT）、个人打卡、猫养成、AI 助手、连击排行榜、最小管理端；小组/模板表保留但代码为二期。
+miao-kaka（喵卡卡）是一个打卡类应用的 Spring Boot 后端：用户创建打卡计划（每计划自动领养一只"猫精灵"），每日按计划打卡触发随机事件（攻击 BOSS / 属性提升 / 暴击），连续打卡获得连击加成，积分可用于补卡。接入 Spring AI（DeepSeek）实现 AI 生成打卡计划草稿与打卡后的猫口吻鼓励语。一期范围：用户认证（JWT）、个人打卡、猫养成、AI 助手、连击排行榜、最小管理端。
+
+二期新增两种打卡形式（设计文档见 `docs/superpowers/specs/2026-09-11-duel-and-focus-design.md`）：
+
+- **习惯死斗模式**：多人组队押金对抗。虚拟"喵币"账户（注册赠 1000，`/wallet` 可查流水）托管，按出勤比例返还、被没收部分逐笔按其余成员天数占比再分配（`utils/SettlementCalculator` 纯函数 + 单测）；打卡需上传照片凭证（`/duel/{id}/check_in`），记录进入待审核态（status=3），组长（或 AI 视觉模型 GLM-4V 预审，配置开关 `app.ai.vision.*`）审核通过那一刻才触发猫事件结算；成员加入即自动创建"影子计划"（`plan_source=2`，绑定 `duel_id`）复用整个打卡引擎，影子计划被护栏封闭（禁普通打卡/补卡/删除/手动暂停）。结算幂等（`duel.settled` 条件更新抢占 + 定时任务 `config/DuelScheduler` + 详情访问 lazy 兜底）；结束时任然待审核的凭证自动视为通过。合规要点：一期用虚拟押金规避资金二清，押金网关抽象待二期换真实支付。
+- **10 分钟习惯养成**：后端不可知，前端本地倒计时 + 现有 `POST /check_in`；后端仅 `check_in_plan.plan_mode` 标记列，无任何逻辑。
 
 ## 常用命令
 
@@ -21,7 +26,10 @@ miao-kaka（喵卡卡）是一个打卡类应用的 Spring Boot 后端：用户�
 分层结构（`com.senze.miaokaka`）：
 
 - `controller/` — REST 入口，统一返回 `BaseResponse<T>`（`ResultUtils.success/error`）；`AiController`（AI 计划草稿）、`PlanController`、`CheckInController`、`UserController`、`RankController`、`AdminController`（`@AuthCheck(mustRole="admin")`）
-- `service/` + `service/impl/` — 业务逻辑；`CheckInRecordServiceImpl` 是核心：打卡事件引擎（`TransactionTemplate` 编程式事务，AI 鼓励语在事务提交后生成、超时降级本地语录）、补卡（扣积分、自然月 2 次、连击回溯重算）
+- `service/` + `service/impl/` — 业务逻辑；`CheckInRecordServiceImpl` 是核心：打卡事件引擎（`TransactionTemplate` 编程式事务，AI 鼓励语在事务提交后生成、超时降级本地语录）、补卡（扣积分、自然月 2 次、连击回溯重算）、死斗审核通过结算入口 `settleApprovedCheckIn`（普通打卡与审核通过共用 `applyGrowthAndPoints`）
+- `service/DuelService|DuelBattleService|DuelSettlementService` — 死斗生命周期（创建/加入/退出/影子计划/开赛）、打卡凭证与审核、幂等结算
+- `service/WalletService` — 喵币账本：原子条件更新扣押金、每笔流水写 `balance_after` 可重放对账
+- `service/StorageService`（本地磁盘实现）/ `VisionReviewService`（GLM-4V 走 OpenAI 兼容端点，RestClient + 虚拟线程限时）
 - `mapper/` — MyBatis Plus `BaseMapper`（注意：3.5.17 中 `IService/ServiceImpl` 在 `com.baomidou.mybatisplus.spring.service(.impl)` 包，分页拦截器在独立构件 `mybatis-plus-jsqlparser`）
 - `model/entity|dto|vo` — 实体 / 请求 / 响应对象
 - `interceptor/JwtInterceptor` — 登录态 + 角色校验，每请求回库取用户（封禁即时生效），登录用户放 request 属性 `user_login`

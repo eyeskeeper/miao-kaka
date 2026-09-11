@@ -28,4 +28,10 @@ public interface CheckInRecordService extends IService<CheckInRecord> {
      * 某计划某月打卡日历
      */
     CheckInCalendarVO calendar(Long userId, Long planId, String month);
+
+    /**
+     * 死斗凭证审核通过后的结算入口：记录置为正常、重算连击并触发一次事件结算。
+     * 返回事件结果（含猫口吻鼓励语），供审核响应展示。
+     */
+    CheckInResultVO settleApprovedCheckIn(Long userId, Long planId, Long recordId);
 }

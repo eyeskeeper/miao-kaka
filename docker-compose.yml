@@ -33,6 +33,11 @@ services:
       DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:?set DEEPSEEK_API_KEY in .env}
       JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET in .env}
       SWAGGER_ENABLED: ${SWAGGER_ENABLED:-false}
+      UPLOAD_DIR: /data/uploads
+      VISION_ENABLED: ${VISION_ENABLED:-false}
+      ZHIPU_VISION_API_KEY: ${ZHIPU_VISION_API_KEY:-}
+    volumes:
+      - upload-data:/data/uploads
     expose:
       - "18089"
     restart: unless-stopped
@@ -53,3 +58,4 @@ services:
 
 volumes:
   mysql-data:
+  upload-data:

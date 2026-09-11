@@ -23,6 +23,7 @@ import com.senze.miaokaka.model.vo.LoginUserVO;
 import com.senze.miaokaka.model.vo.RankItemVO;
 import com.senze.miaokaka.model.vo.UserVO;
 import com.senze.miaokaka.service.UserService;
+import com.senze.miaokaka.service.WalletService;
 import com.senze.miaokaka.utils.JwtUtils;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
@@ -44,6 +45,8 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
 
     private final JwtProperties jwtProperties;
 
+    private final WalletService walletService;
+
     @Override
     public long register(UserRegisterRequest request) {
         ThrowUtils.throwIf(!StrUtil.equals(request.getUserPassword(), request.getCheckPassword()),
@@ -58,8 +61,11 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
         user.setUserRole(UserConstant.DEFAULT_ROLE);
         user.setCurrentStreak(0);
         user.setTotalPoints(0);
+        user.setMiaoCoins(0);
         boolean saved = save(user);
         ThrowUtils.throwIf(!saved, ErrorCode.SYSTEM_ERROR, "注册失败，请重试");
+        // 注册赠送喵币（押金货币）
+        walletService.grantRegisterGift(user.getId());
         return user.getId();
     }
 

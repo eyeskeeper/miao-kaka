@@ -6,20 +6,21 @@
 create table if not exists user
 (
     id             bigint auto_increment comment 'id' primary key,
-    user_account    varchar(256)                           not null comment '账号',
-    user_password   varchar(512)                           not null comment '密码',
-    union_id        varchar(256)                           null comment '微信开放平台id',
+    user_account   varchar(256)                           not null comment '账号',
+    user_password  varchar(512)                           not null comment '密码',
+    union_id       varchar(256)                           null comment '微信开放平台id',
     phone          varchar(20)                            default null comment '手机号',
-    mp_open_id       varchar(256)                           null comment '公众号openid',
-    user_name       varchar(256)                           null comment '用户昵称',
-    user_avatar     varchar(1024)                          null comment '用户头像',
-    user_profile    varchar(512)                           null comment '用户简介',
-    user_role       varchar(256) default 'user'            not null comment '用户角色：user/admin/ban',
+    mp_open_id     varchar(256)                           null comment '公众号openid',
+    user_name      varchar(256)                           null comment '用户昵称',
+    user_avatar    varchar(1024)                          null comment '用户头像',
+    user_profile   varchar(512)                           null comment '用户简介',
+    user_role      varchar(256) default 'user'            not null comment '用户角色：user/admin/ban',
     current_streak int          default 0                 comment '全勤连击天数（当天全部进行中计划都完成才累计）',
     total_points   int          default 0                 comment '当前可用积分余额',
-    create_time     datetime     default current_timestamp not null comment '创建时间',
-    update_time     datetime     default current_timestamp not null on update current_timestamp comment '更新时间',
-    is_delete       tinyint      default 0                 not null comment '是否删除',
+    miao_coins     int          default 1000              comment '喵币余额（押金货币，注册赠送1000）',
+    create_time    datetime     default current_timestamp not null comment '创建时间',
+    update_time    datetime     default current_timestamp not null on update current_timestamp comment '更新时间',
+    is_delete      tinyint      default 0                 not null comment '是否删除',
     unique key uk_user_account (user_account),
     index idx_unionid (union_id),
     index idx_phone (phone),
@@ -34,7 +35,7 @@ create table `check_in_record`
     plan_id       bigint                             not null comment '关联打卡计划id',
     check_in_date date                               not null comment '打卡日期（北京时间）',
     check_in_time datetime                           not null default current_timestamp comment '具体打卡时间点',
-    status        tinyint                            not null default 0 comment '打卡状态 (0:正常, 1:补卡, 2:异常)',
+    status        tinyint                            not null default 0 comment '打卡状态 (0:正常, 1:补卡, 2:异常, 3:待审核)',
     remark        varchar(255)                       default null comment '打卡备注',
     unique key `uk_user_plan_date` (`user_id`, `plan_id`, `check_in_date`),
     index idx_plan_date (plan_id, check_in_date)
@@ -51,9 +52,9 @@ create table `team`
     leader_id     bigint       not null comment '组长id',
     location      varchar(255)          default null comment '所属地点',
     status        tinyint               default 0 not null comment '状态 (0:正常, 1:已解散, 2:已封禁)',
-    create_time    datetime     default current_timestamp not null comment '创建时间',
-    update_time    datetime     default current_timestamp not null on update current_timestamp comment '更新时间',
-    is_delete      tinyint               default 0 not null comment '是否删除',
+    create_time   datetime     default current_timestamp not null comment '创建时间',
+    update_time   datetime     default current_timestamp not null on update current_timestamp comment '更新时间',
+    is_delete     tinyint               default 0 not null comment '是否删除',
     index idx_leader_id (leader_id),
     index idx_status (status),
     index idx_team_type (team_type)
@@ -71,9 +72,9 @@ create table `group_plan_template`
     daily_tasks   json                  default null comment '每日任务配置 (JSON数组)',
     total_tasks   int                   default 1 comment '总任务数',
     is_default    tinyint               default 0 not null comment '是否为小组默认模板 (0:否, 1:是)',
-    create_time    datetime     default current_timestamp not null comment '创建时间',
-    update_time    datetime     default current_timestamp not null on update current_timestamp comment '更新时间',
-    is_delete      tinyint               default 0 not null comment '是否删除',
+    create_time   datetime     default current_timestamp not null comment '创建时间',
+    update_time   datetime     default current_timestamp not null on update current_timestamp comment '更新时间',
+    is_delete     tinyint               default 0 not null comment '是否删除',
     index idx_team_id (team_id),
     index idx_is_default (is_default)
 ) comment='小组计划模板表' collate = utf8mb4_unicode_ci;
@@ -85,7 +86,9 @@ create table `check_in_plan`
     user_id         bigint       not null comment '用户id',
     team_id         bigint                default null comment '关联小组id（二期）',
     template_id     bigint                default null comment '引用的小组模板id（二期）',
-    plan_source     tinyint               default 0 not null comment '计划来源 (0:个人创建, 1:小组模板)',
+    plan_source     tinyint               default 0 not null comment '计划来源 (0:个人创建, 1:小组模板, 2:死斗挑战)',
+    plan_mode       tinyint               default 0 not null comment '计划模式 (0:普通, 1:10分钟习惯，纯标记由前端实现计时)',
+    duel_id         bigint                default null comment '关联死斗id（影子计划专属）',
     plan_name       varchar(128) not null comment '计划名称',
     plan_desc       varchar(512)          default null comment '计划描述',
     plan_type       tinyint               default 0 not null comment '计划类型 (0:学习, 1:运动, 2:阅读, 3:其他)',
@@ -99,13 +102,14 @@ create table `check_in_plan`
     completed_tasks int                   default 0 comment '已完成任务数（冗余字段，便于查询）',
     completion_time datetime              default null comment '全部完成时间',
     status          tinyint               default 0 not null comment '状态 (0:进行中, 1:已暂停, 2:已结束, 3:已完成)',
-    create_time      datetime     default current_timestamp not null comment '创建时间',
-    update_time      datetime     default current_timestamp not null on update current_timestamp comment '更新时间',
-    is_delete        tinyint               default 0 not null comment '是否删除',
+    create_time     datetime     default current_timestamp not null comment '创建时间',
+    update_time     datetime     default current_timestamp not null on update current_timestamp comment '更新时间',
+    is_delete       tinyint               default 0 not null comment '是否删除',
     index idx_user_id (user_id),
     index idx_team_id (team_id),
     index idx_template_id (template_id),
     index idx_plan_source (plan_source),
+    index idx_duel_id (duel_id),
     index idx_status (status)
 ) comment='打卡计划表' collate = utf8mb4_unicode_ci;
 
@@ -128,9 +132,83 @@ create table `cat_spirit`
     boss_hp             int                   default 100 not null comment '当前BOSS剩余血量（不自动回复）',
     boss_max_hp         int                   default 100 not null comment '当前BOSS最大血量',
     total_boss_defeated int                   default 0 not null comment '累计击败BOSS数量',
-    create_time          datetime     default current_timestamp not null comment '创建时间',
-    update_time          datetime     default current_timestamp not null on update current_timestamp comment '更新时间',
+    create_time         datetime     default current_timestamp not null comment '创建时间',
+    update_time         datetime     default current_timestamp not null on update current_timestamp comment '更新时间',
     unique key uk_plan_id (plan_id),
     index idx_level (level),
     index idx_boss_level (boss_level)
 ) comment='猫精灵表' collate = utf8mb4_unicode_ci;
+
+-- 7. 喵币流水表（余额只随流水变动，balance_after 可重放对账）
+create table `coin_transaction`
+(
+    id            bigint auto_increment comment '流水id' primary key,
+    user_id       bigint                             not null comment '用户id',
+    type          tinyint                            not null comment '类型 (0:注册赠送, 1:押金支出, 2:退还, 3:奖池分得, 4:管理员调整)',
+    amount        int                                not null comment '变动数额（正收入/负支出）',
+    balance_after int                                not null comment '变动后余额',
+    biz_id        bigint                             default null comment '关联业务id（死斗id）',
+    remark        varchar(255)                       default null comment '备注',
+    create_time   datetime default current_timestamp not null comment '创建时间',
+    index idx_user (user_id),
+    index idx_biz (biz_id)
+) comment='喵币流水表' collate = utf8mb4_unicode_ci;
+
+-- 8. 习惯死斗挑战表
+create table `duel`
+(
+    id                  bigint       not null auto_increment comment '死斗id' primary key,
+    duel_name           varchar(128) not null comment '死斗名称',
+    duel_desc           varchar(512)          default null comment '死斗描述',
+    leader_id           bigint       not null comment '组长id（创建者）',
+    deposit_per_member  int          not null comment '每人押金（喵币，100~5000）',
+    total_days          int          not null comment '挑战天数（3~365）',
+    start_date          date         not null comment '开始日期（北京时间）',
+    end_date            date         not null comment '结束日期 = 开始日期 + total_days - 1',
+    status              tinyint               default 0 not null comment '状态 (0:招募中, 1:进行中, 2:已结算, 3:已解散)',
+    member_count        int                   default 1 not null comment '当前人数（冗余）',
+    total_pool          int                   default 0 not null comment '当前奖池总额（人数×押金，冗余）',
+    settled             tinyint               default 0 not null comment '结算是否完成（幂等标记）',
+    create_time         datetime     default current_timestamp not null comment '创建时间',
+    update_time         datetime     default current_timestamp not null on update current_timestamp comment '更新时间',
+    is_delete           tinyint               default 0 not null comment '是否删除',
+    index idx_leader (leader_id),
+    index idx_status (status),
+    index idx_end_date (end_date)
+) comment='习惯死斗挑战表' collate = utf8mb4_unicode_ci;
+
+-- 9. 死斗成员表
+create table `duel_member`
+(
+    id            bigint auto_increment comment '成员id' primary key,
+    duel_id       bigint                             not null comment '死斗id',
+    user_id       bigint                             not null comment '用户id',
+    plan_id       bigint                             not null comment '影子计划id（复用打卡引擎）',
+    deposit       int                                not null comment '本人押金（喵币快照）',
+    checkin_days  int                                default 0 not null comment '已确认打卡天数（结算时重算）',
+    status        tinyint                            default 0 not null comment '状态 (0:已加入, 1:进行中, 2:已结算, 3:已退出)',
+    join_time     datetime default current_timestamp not null comment '加入时间',
+    unique key uk_duel_user (duel_id, user_id),
+    index idx_user (user_id),
+    index idx_plan (plan_id)
+) comment='死斗成员表' collate = utf8mb4_unicode_ci;
+
+-- 10. 打卡凭证与审核表（死斗专属）
+create table `check_in_evidence`
+(
+    id             bigint auto_increment comment '凭证id' primary key,
+    record_id      bigint                             not null comment '对应打卡记录id（唯一）',
+    duel_id        bigint                             not null comment '死斗id',
+    user_id        bigint                             not null comment '打卡用户id',
+    image_path     varchar(1024)                      not null comment '凭证图片存储路径（相对）',
+    review_status  tinyint                            default 0 not null comment '审核状态 (0:待审核, 1:通过, 2:驳回)',
+    reviewer_id    bigint                             default null comment '审核人id（组长）',
+    is_self_review tinyint                            default 0 not null comment '是否组长自审（公示标记）',
+    ai_suggestion  tinyint                            default null comment 'AI建议 (空:未启用, 0:建议通过, 1:建议驳回)',
+    ai_reason      varchar(512)                       default null comment 'AI 判断理由',
+    review_remark  varchar(255)                       default null comment '审核备注（驳回必填）',
+    review_time    datetime                           default null comment '审核时间',
+    create_time    datetime default current_timestamp not null comment '创建时间',
+    unique key uk_record (record_id),
+    index idx_duel_status (duel_id, review_status)
+) comment='打卡凭证与审核表' collate = utf8mb4_unicode_ci;

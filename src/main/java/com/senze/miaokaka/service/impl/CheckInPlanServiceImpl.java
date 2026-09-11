@@ -73,6 +73,9 @@ public class CheckInPlanServiceImpl extends ServiceImpl<CheckInPlanMapper, Check
     @Override
     public PlanVO updatePlan(Long userId, PlanUpdateRequest request) {
         CheckInPlan plan = getOwnedPlan(userId, request.getId());
+        // 影子计划通道封闭：状态由死斗流程管理，禁止手动暂停/恢复
+        ThrowUtils.throwIf(isShadowPlan(plan) && request.getStatus() != null && !request.getStatus().equals(plan.getStatus()),
+                ErrorCode.OPERATION_ERROR, "死斗计划状态由死斗流程管理，不可手动切换");
         if (StrUtil.isNotBlank(request.getPlanName())) {
             plan.setPlanName(request.getPlanName().trim());
         }
@@ -99,6 +102,8 @@ public class CheckInPlanServiceImpl extends ServiceImpl<CheckInPlanMapper, Check
     @Override
     public boolean deletePlan(Long userId, Long planId) {
         CheckInPlan plan = getOwnedPlan(userId, planId);
+        // 影子计划通道封闭：删除死斗计划等于销毁押金凭证，禁止
+        ThrowUtils.throwIf(isShadowPlan(plan), ErrorCode.OPERATION_ERROR, "死斗计划不可删除，由死斗流程管理");
         return removeById(plan.getId());
     }
 
@@ -142,6 +147,33 @@ public class CheckInPlanServiceImpl extends ServiceImpl<CheckInPlanMapper, Check
         ThrowUtils.throwIf(plan == null, ErrorCode.NOT_FOUND_ERROR, "计划不存在");
         ThrowUtils.throwIf(!plan.getUserId().equals(userId), ErrorCode.FORBIDDEN_ERROR, "无权操作该计划");
         return plan;
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public CheckInPlan createShadowPlan(Long userId, String duelName, int totalDays, Long duelId) {
+        CheckInPlan plan = new CheckInPlan();
+        plan.setUserId(userId);
+        plan.setPlanSource(CheckInConstant.PLAN_SOURCE_DUEL);
+        plan.setPlanMode(0);
+        plan.setDuelId(duelId);
+        plan.setPlanName(duelName);
+        plan.setPlanType(3);
+        plan.setTargetDays(totalDays);
+        plan.setCurrentStreak(0);
+        plan.setMaxStreak(0);
+        plan.setTotalTasks(1);
+        plan.setTaskProgress("");
+        plan.setCompletedTasks(0);
+        plan.setStatus(CheckInConstant.PLAN_STATUS_ACTIVE);
+        boolean saved = save(plan);
+        ThrowUtils.throwIf(!saved, ErrorCode.SYSTEM_ERROR, "影子计划创建失败");
+        catSpiritService.createCatForPlan(plan.getId());
+        return plan;
+    }
+
+    private boolean isShadowPlan(CheckInPlan plan) {
+        return plan.getPlanSource() != null && plan.getPlanSource() == CheckInConstant.PLAN_SOURCE_DUEL;
     }
 
     private PlanVO buildPlanVO(CheckInPlan plan, boolean checkedToday) {

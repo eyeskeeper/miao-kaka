@@ -42,9 +42,19 @@ public class CheckInPlan implements Serializable {
     private Long templateId;
 
     /**
-     * 计划来源 (0:个人创建, 1:小组模板)
+     * 计划来源 (0:个人创建, 1:小组模板, 2:死斗挑战)
      */
     private Integer planSource;
+
+    /**
+     * 计划模式 (0:普通, 1:10分钟习惯，纯标记由前端实现计时)
+     */
+    private Integer planMode;
+
+    /**
+     * 关联死斗id（影子计划专属）
+     */
+    private Long duelId;
 
     /**
      * 计划名称
