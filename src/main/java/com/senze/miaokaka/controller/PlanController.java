@@ -6,9 +6,12 @@ import com.senze.miaokaka.common.ResultUtils;
 import com.senze.miaokaka.model.dto.plan.CatRenameRequest;
 import com.senze.miaokaka.model.dto.plan.PlanCreateRequest;
 import com.senze.miaokaka.model.dto.plan.PlanUpdateRequest;
+import com.senze.miaokaka.model.dto.plan.TaskToggleRequest;
 import com.senze.miaokaka.model.entity.User;
 import com.senze.miaokaka.model.vo.PlanVO;
+import com.senze.miaokaka.model.vo.TaskToggleVO;
 import com.senze.miaokaka.service.CheckInPlanService;
+import com.senze.miaokaka.service.CheckInRecordService;
 import com.senze.miaokaka.service.UserService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -38,6 +41,9 @@ public class PlanController {
 
     @Resource
     private CheckInPlanService checkInPlanService;
+
+    @Resource
+    private CheckInRecordService checkInRecordService;
 
     @Resource
     private UserService userService;
@@ -75,6 +81,15 @@ public class PlanController {
     public BaseResponse<PlanVO> detail(@PathVariable Long planId, HttpServletRequest servletRequest) {
         User user = userService.getLoginUser(servletRequest);
         return ResultUtils.success(checkInPlanService.getPlanDetail(user.getId(), planId));
+    }
+
+    @PostMapping("/{planId}/task/toggle")
+    @Operation(summary = "每日任务勾选（部分打卡）", description = "维护任务位图；勾满最后一项自动完成当日打卡并返回事件结算（死斗影子计划不自动打卡，需上传凭证）；当日已打卡则冻结")
+    public BaseResponse<TaskToggleVO> toggleTask(@PathVariable Long planId,
+                                                 @Valid @RequestBody TaskToggleRequest request,
+                                                 HttpServletRequest servletRequest) {
+        User user = userService.getLoginUser(servletRequest);
+        return ResultUtils.success(checkInRecordService.toggleTask(user.getId(), planId, request));
     }
 
     @PostMapping("/cat/name")

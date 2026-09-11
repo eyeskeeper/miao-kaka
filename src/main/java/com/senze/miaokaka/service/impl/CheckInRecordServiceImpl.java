@@ -14,6 +14,7 @@ import com.senze.miaokaka.mapper.CatSpiritMapper;
 import com.senze.miaokaka.mapper.CheckInPlanMapper;
 import com.senze.miaokaka.mapper.CheckInRecordMapper;
 import com.senze.miaokaka.mapper.UserMapper;
+import com.senze.miaokaka.model.dto.plan.TaskToggleRequest;
 import com.senze.miaokaka.model.entity.CheckInPlan;
 import com.senze.miaokaka.model.entity.CheckInRecord;
 import com.senze.miaokaka.model.entity.CatSpirit;
@@ -21,6 +22,7 @@ import com.senze.miaokaka.model.entity.User;
 import com.senze.miaokaka.model.vo.CheckInCalendarVO;
 import com.senze.miaokaka.model.vo.CheckInResultVO;
 import com.senze.miaokaka.model.vo.MakeupResultVO;
+import com.senze.miaokaka.model.vo.TaskToggleVO;
 import com.senze.miaokaka.service.AiAssistantService;
 import com.senze.miaokaka.service.CatSpiritService;
 import com.senze.miaokaka.service.CheckInPlanService;
@@ -128,6 +130,105 @@ public class CheckInRecordServiceImpl extends ServiceImpl<CheckInRecordMapper, C
         result.setEncouragement(aiAssistantService.generateEncouragement(result.getCatName(), result.getEventDesc()));
         return result;
     }
+
+    // region 每日任务勾选（部分打卡）
+
+    @Override
+    public TaskToggleVO toggleTask(Long userId, Long planId, TaskToggleRequest request) {
+        TaskToggleVO vo = transactionTemplate.execute(status -> doToggleTaskInTx(userId, planId, request));
+        // 自动打卡的猫口吻鼓励语在事务提交后生成（与普通打卡同一模式）
+        if (Boolean.TRUE.equals(vo.getAutoChecked())) {
+            vo.getCheckInResult().setEncouragement(aiAssistantService.generateEncouragement(
+                    vo.getCheckInResult().getCatName(), vo.getCheckInResult().getEventDesc()));
+        }
+        return vo;
+    }
+
+    private TaskToggleVO doToggleTaskInTx(Long userId, Long planId, TaskToggleRequest request) {
+        CheckInPlan plan = checkInPlanMapper.selectById(planId);
+        ThrowUtils.throwIf(plan == null, ErrorCode.NOT_FOUND_ERROR, "计划不存在");
+        ThrowUtils.throwIf(!plan.getUserId().equals(userId), ErrorCode.FORBIDDEN_ERROR, "无权操作该计划");
+        ThrowUtils.throwIf(plan.getStatus() != CheckInConstant.PLAN_STATUS_ACTIVE,
+                ErrorCode.OPERATION_ERROR, "计划不在进行中");
+
+        List<String> tasks = parseDailyTasks(plan.getDailyTasks());
+        ThrowUtils.throwIf(tasks.isEmpty(), ErrorCode.OPERATION_ERROR, "该计划未配置每日任务，直接打卡即可");
+        int idx = request.getTaskIndex();
+        ThrowUtils.throwIf(idx >= tasks.size(), ErrorCode.PARAMS_ERROR, "任务下标超出范围（共 " + tasks.size() + " 项）");
+
+        // 当日已有任意状态记录（正常/待审核/异常）即冻结：数据已随打卡落定
+        LocalDate today = LocalDate.now(CheckInConstant.BIZ_ZONE);
+        ThrowUtils.throwIf(existsRecord(userId, planId, today),
+                ErrorCode.OPERATION_ERROR, "今日已打卡，任务勾选已冻结");
+
+        // 位图翻转（幂等）：补齐长度 → 翻转指定项 → 统计完成数
+        boolean done = Boolean.TRUE.equals(request.getDone());
+        char[] progress = padProgress(plan.getTaskProgress(), tasks.size());
+        progress[idx] = done ? '1' : '0';
+        String progressStr = new String(progress);
+        int completed = countDone(progressStr);
+        plan.setTaskProgress(progressStr);
+        plan.setCompletedTasks(completed);
+        checkInPlanMapper.updateById(plan);
+
+        TaskToggleVO vo = new TaskToggleVO();
+        vo.setPlanId(planId);
+        vo.setTaskIndex(idx);
+        vo.setDone(done);
+        vo.setTaskProgress(progressStr);
+        vo.setCompletedTasks(completed);
+        vo.setTotalTasks(tasks.size());
+        boolean allDone = completed >= tasks.size();
+        vo.setAllDone(allDone);
+        vo.setAutoChecked(false);
+
+        if (allDone) {
+            if (plan.getPlanSource() != null && plan.getPlanSource() == CheckInConstant.PLAN_SOURCE_DUEL) {
+                // 影子计划通道封闭：完成勾选后仍需照片凭证，不自动打卡
+                vo.setMessage("任务全部完成！请到死斗入口上传照片凭证完成打卡");
+            } else {
+                // 勾满即打卡：复用事件引擎，奖励即刻落地
+                vo.setCheckInResult(doCheckInInTx(userId, planId, null));
+                vo.setAutoChecked(true);
+            }
+        }
+        return vo;
+    }
+
+    private List<String> parseDailyTasks(String json) {
+        if (StrUtil.isBlank(json)) {
+            return List.of();
+        }
+        try {
+            List<String> tasks = cn.hutool.json.JSONUtil.toList(json, String.class);
+            return tasks == null ? List.of() : tasks.stream().filter(StrUtil::isNotBlank).toList();
+        } catch (Exception e) {
+            return List.of();
+        }
+    }
+
+    private char[] padProgress(String progress, int size) {
+        char[] chars = new char[size];
+        java.util.Arrays.fill(chars, '0');
+        if (StrUtil.isNotBlank(progress)) {
+            for (int i = 0; i < Math.min(progress.length(), size); i++) {
+                chars[i] = progress.charAt(i) == '1' ? '1' : '0';
+            }
+        }
+        return chars;
+    }
+
+    private int countDone(String progress) {
+        int count = 0;
+        for (char c : progress.toCharArray()) {
+            if (c == '1') {
+                count++;
+            }
+        }
+        return count;
+    }
+
+    // endregion
 
     /**
      * 死斗凭证审核通过的结算：记录置为正常、回溯重算连击、事件在通过那一刻才触发

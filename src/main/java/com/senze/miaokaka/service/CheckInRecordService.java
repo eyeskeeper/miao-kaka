@@ -1,10 +1,12 @@
 package com.senze.miaokaka.service;
 
 import com.baomidou.mybatisplus.spring.service.IService;
+import com.senze.miaokaka.model.dto.plan.TaskToggleRequest;
 import com.senze.miaokaka.model.entity.CheckInRecord;
 import com.senze.miaokaka.model.vo.CheckInCalendarVO;
 import com.senze.miaokaka.model.vo.CheckInResultVO;
 import com.senze.miaokaka.model.vo.MakeupResultVO;
+import com.senze.miaokaka.model.vo.TaskToggleVO;
 
 /**
  * 打卡记录服务（含打卡事件引擎与补卡）
@@ -34,4 +36,11 @@ public interface CheckInRecordService extends IService<CheckInRecord> {
      * 返回事件结果（含猫口吻鼓励语），供审核响应展示。
      */
     CheckInResultVO settleApprovedCheckIn(Long userId, Long planId, Long recordId);
+
+    /**
+     * 每日任务勾选（部分打卡）：维护计划位图，勾满最后一项自动完成当日打卡
+     * （死斗影子计划不自动打卡——需走照片凭证入口）。
+     * 当日已有任意状态打卡记录后冻结勾选。
+     */
+    TaskToggleVO toggleTask(Long userId, Long planId, TaskToggleRequest request);
 }
