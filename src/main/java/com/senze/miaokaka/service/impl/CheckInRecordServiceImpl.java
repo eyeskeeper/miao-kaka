@@ -24,6 +24,7 @@ import com.senze.miaokaka.model.vo.CheckInResultVO;
 import com.senze.miaokaka.model.vo.MakeupResultVO;
 import com.senze.miaokaka.model.vo.TaskToggleVO;
 import com.senze.miaokaka.service.AiAssistantService;
+import com.senze.miaokaka.service.CacheService;
 import com.senze.miaokaka.service.CatSpiritService;
 import com.senze.miaokaka.service.CheckInPlanService;
 import com.senze.miaokaka.service.CheckInRecordService;
@@ -66,6 +67,8 @@ public class CheckInRecordServiceImpl extends ServiceImpl<CheckInRecordMapper, C
     private final AiAssistantService aiAssistantService;
 
     private final TransactionTemplate transactionTemplate;
+
+    private final CacheService cacheService;
 
     // region 打卡（事件引擎）
 
@@ -315,6 +318,8 @@ public class CheckInRecordServiceImpl extends ServiceImpl<CheckInRecordMapper, C
         User freshUser = userMapper.selectById(user.getId());
         freshUser.setTotalPoints(freshUser.getTotalPoints() + pointsEarned);
         userMapper.updateById(freshUser);
+        // 用户行已变（积分/全勤连击）：逐出登录态与排行榜缓存
+        cacheService.evict(CacheService.keyUser(user.getId()), CacheService.KEY_RANK_STREAK);
         vo.setExpGained(expGained);
         vo.setPointsEarned(pointsEarned);
         vo.setTotalPoints(freshUser.getTotalPoints());
@@ -444,6 +449,7 @@ public class CheckInRecordServiceImpl extends ServiceImpl<CheckInRecordMapper, C
         // 扣积分 + 落补卡记录
         user.setTotalPoints(user.getTotalPoints() - GameConstants.MAKEUP_COST);
         userMapper.updateById(user);
+        cacheService.evict(CacheService.keyUser(userId));
         CheckInRecord record = new CheckInRecord();
         record.setUserId(userId);
         record.setPlanId(planId);

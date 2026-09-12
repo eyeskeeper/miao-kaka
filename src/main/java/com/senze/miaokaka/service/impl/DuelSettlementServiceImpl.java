@@ -12,6 +12,7 @@ import com.senze.miaokaka.model.entity.CheckInEvidence;
 import com.senze.miaokaka.model.entity.CheckInRecord;
 import com.senze.miaokaka.model.entity.Duel;
 import com.senze.miaokaka.model.entity.DuelMember;
+import com.senze.miaokaka.service.CacheService;
 import com.senze.miaokaka.service.DuelSettlementService;
 import com.senze.miaokaka.service.WalletService;
 import com.senze.miaokaka.utils.SettlementCalculator;
@@ -44,6 +45,8 @@ public class DuelSettlementServiceImpl extends ServiceImpl<DuelMapper, Duel>
     private final WalletService walletService;
 
     private final TransactionTemplate transactionTemplate;
+
+    private final CacheService cacheService;
 
     @Override
     public void settleAllDue() {
@@ -84,6 +87,8 @@ public class DuelSettlementServiceImpl extends ServiceImpl<DuelMapper, Duel>
         if (!claimed) {
             return false;
         }
+        // 结算改变成员状态/天数展示，逐出聚合缓存（钱包余额本就不缓存）
+        cacheService.evict(CacheService.keyDuelAgg(duelId));
         Duel duel = getById(duelId);
 
         // 宽容条款：结束时任然待审核的记录自动视为通过

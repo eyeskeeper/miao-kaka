@@ -13,6 +13,7 @@ import com.senze.miaokaka.mapper.UserMapper;
 import com.senze.miaokaka.model.entity.CoinTransaction;
 import com.senze.miaokaka.model.entity.User;
 import com.senze.miaokaka.model.vo.WalletVO;
+import com.senze.miaokaka.service.CacheService;
 import com.senze.miaokaka.service.WalletService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -32,6 +33,8 @@ public class WalletServiceImpl extends ServiceImpl<CoinTransactionMapper, CoinTr
         implements WalletService {
 
     private final UserMapper userMapper;
+
+    private final CacheService cacheService;
 
     @Override
     @Transactional(rollbackFor = Exception.class)
@@ -54,6 +57,7 @@ public class WalletServiceImpl extends ServiceImpl<CoinTransactionMapper, CoinTr
         if (rows == 0) {
             throw new BusinessException(ErrorCode.OPERATION_ERROR, "喵币余额不足（需 " + amount + " 喵币）");
         }
+        cacheService.evict(CacheService.keyUser(userId));
         record(userId, DuelConstant.COIN_TX_DEPOSIT, -amount, duelId, "死斗押金托管");
     }
 
@@ -99,12 +103,17 @@ public class WalletServiceImpl extends ServiceImpl<CoinTransactionMapper, CoinTr
     /**
      * 加余额（退款/奖池/赠送为正数路径）
      */
+    /**
+     * 加余额（退款/奖池/赠送为正数路径）；喵币属钱的数据不缓存，
+     * 但登录态用户对象含余额字段，需随写逐出保证 /me 实时
+     */
     private void addBalance(Long userId, int amount) {
         LambdaUpdateWrapper<User> uw = new LambdaUpdateWrapper<>();
         uw.eq(User::getId, userId)
                 .setSql("miao_coins = miao_coins + " + amount);
         int rows = userMapper.update(null, uw);
         ThrowUtils.throwIf(rows == 0, ErrorCode.NOT_FOUND_ERROR, "用户不存在");
+        cacheService.evict(CacheService.keyUser(userId));
     }
 
     /**

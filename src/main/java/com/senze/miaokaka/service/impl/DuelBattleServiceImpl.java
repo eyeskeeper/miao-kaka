@@ -20,6 +20,7 @@ import com.senze.miaokaka.model.entity.User;
 import com.senze.miaokaka.model.vo.CheckInResultVO;
 import com.senze.miaokaka.model.vo.ReviewItemVO;
 import com.senze.miaokaka.service.CheckInRecordService;
+import com.senze.miaokaka.service.CacheService;
 import com.senze.miaokaka.service.DuelBattleService;
 import com.senze.miaokaka.service.StorageService;
 import com.senze.miaokaka.service.VisionReviewService;
@@ -63,6 +64,8 @@ public class DuelBattleServiceImpl extends ServiceImpl<DuelMemberMapper, DuelMem
     private final CheckInRecordService checkInRecordService;
 
     private final TransactionTemplate transactionTemplate;
+
+    private final CacheService cacheService;
 
     // region 打卡
 
@@ -210,6 +213,8 @@ public class DuelBattleServiceImpl extends ServiceImpl<DuelMemberMapper, DuelMem
             checkInEvidenceMapper.updateById(evidence);
             record.setStatus(CheckInConstant.RECORD_STATUS_ABNORMAL);
             checkInRecordService.updateById(record);
+            // 审核改变成员确认天数（通过+1），逐出死斗聚合缓存
+            cacheService.evict(CacheService.keyDuelAgg(duelId));
             return null;
         });
 

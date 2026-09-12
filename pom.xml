@@ -67,6 +67,11 @@
 			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-starter-validation</artifactId>
 		</dependency>
+<!--		redis 缓存（app.cache.enabled 开关控制，未开启时行为与无缓存完全一致）-->
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-data-redis</artifactId>
+		</dependency>
 <!--		sql-->
 		<dependency>
 			<groupId>mysql</groupId>

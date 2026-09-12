@@ -25,6 +25,9 @@ jwt:
 
 # 应用自定义配置
 app:
+  # Redis 缓存开关（本机 Redis 已启动；关闭时所有缓存读写直接跳过，行为与无缓存一致）
+  cache:
+    enabled: true
   # 上传图片存储目录（本地磁盘实现，二期可换 OSS）
   upload-dir: ./data/uploads
   ai:

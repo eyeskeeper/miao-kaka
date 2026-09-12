@@ -19,7 +19,9 @@ import com.senze.miaokaka.model.entity.CheckInRecord;
 import com.senze.miaokaka.model.entity.Duel;
 import com.senze.miaokaka.model.entity.DuelMember;
 import com.senze.miaokaka.model.entity.User;
+import com.senze.miaokaka.model.vo.DuelAggData;
 import com.senze.miaokaka.model.vo.DuelVO;
+import com.senze.miaokaka.service.CacheService;
 import com.senze.miaokaka.service.CheckInPlanService;
 import com.senze.miaokaka.service.DuelService;
 import com.senze.miaokaka.service.DuelSettlementService;
@@ -64,6 +66,8 @@ public class DuelServiceImpl extends ServiceImpl<DuelMapper, Duel> implements Du
     private final DuelSettlementService duelSettlementService;
 
     private final TransactionTemplate transactionTemplate;
+
+    private final CacheService cacheService;
 
     // region 生命周期
 
@@ -138,6 +142,7 @@ public class DuelServiceImpl extends ServiceImpl<DuelMapper, Duel> implements Du
             duel.setMemberCount(Math.max(0, duel.getMemberCount() - 1));
             duel.setTotalPool(Math.max(0, duel.getTotalPool() - member.getDeposit()));
             updateById(duel);
+            cacheService.evict(CacheService.keyDuelAgg(duelId));
             return null;
         });
         return detail(userId, duelId);
@@ -227,6 +232,7 @@ public class DuelServiceImpl extends ServiceImpl<DuelMapper, Duel> implements Du
                 duel.setMemberCount(0);
                 duel.setTotalPool(0);
                 updateById(duel);
+                cacheService.evict(CacheService.keyDuelAgg(duelId));
                 log.info("死斗 {} 因人数不足（{}人）自动解散", duelId, members.size());
                 return null;
             }
@@ -236,6 +242,7 @@ public class DuelServiceImpl extends ServiceImpl<DuelMapper, Duel> implements Du
                 member.setStatus(DuelConstant.MEMBER_STATUS_RUNNING);
                 duelMemberMapper.updateById(member);
             }
+            cacheService.evict(CacheService.keyDuelAgg(duelId));
             log.info("死斗 {} 开赛，{} 名成员参战", duelId, members.size());
             return null;
         });
@@ -278,6 +285,8 @@ public class DuelServiceImpl extends ServiceImpl<DuelMapper, Duel> implements Du
         duel.setMemberCount(duel.getMemberCount() + 1);
         duel.setTotalPool(duel.getTotalPool() + duel.getDepositPerMember());
         updateById(duel);
+        // 成员/奖池已变，逐出聚合缓存
+        cacheService.evict(CacheService.keyDuelAgg(duel.getId()));
     }
 
     private Duel getRequiredDuel(Long duelId) {
@@ -298,45 +307,51 @@ public class DuelServiceImpl extends ServiceImpl<DuelMapper, Duel> implements Du
                 .ne(DuelMember::getStatus, DuelConstant.MEMBER_STATUS_QUIT));
     }
 
+    /**
+     * 组装详情 VO：观看者无关的聚合层走 Redis（60s TTL + 写时逐出），
+     * myRole/myStatus/myPlanId/pendingCount 等个性化字段每次实时拼装——绝不缓存
+     */
     private DuelVO buildDuelVO(Duel duel, Long userId) {
-        DuelVO vo = new DuelVO();
-        vo.setId(duel.getId());
-        vo.setDuelName(duel.getDuelName());
-        vo.setDuelDesc(duel.getDuelDesc());
-        vo.setLeaderId(duel.getLeaderId());
-        vo.setDepositPerMember(duel.getDepositPerMember());
-        vo.setTotalDays(duel.getTotalDays());
-        vo.setStartDate(duel.getStartDate());
-        vo.setEndDate(duel.getEndDate());
-        vo.setStatus(duel.getStatus());
-        vo.setMemberCount(duel.getMemberCount());
-        vo.setTotalPool(duel.getTotalPool());
-        vo.setSettled(duel.getSettled() != null && duel.getSettled() == 1);
+        String aggKey = CacheService.keyDuelAgg(duel.getId());
+        DuelAggData agg = cacheService.get(aggKey, DuelAggData.class);
+        if (agg == null || agg.getDuel() == null) {
+            agg = loadAggregate(duel.getId());
+            cacheService.put(aggKey, agg, java.time.Duration.ofSeconds(60));
+        }
+        Duel aggDuel = agg.getDuel();
 
-        List<DuelMember> members = activeMembers(duel.getId());
-        Map<Long, User> users = userMap(members);
-        LocalDate today = LocalDate.now(CheckInConstant.BIZ_ZONE);
+        DuelVO vo = new DuelVO();
+        vo.setId(aggDuel.getId());
+        vo.setDuelName(aggDuel.getDuelName());
+        vo.setDuelDesc(aggDuel.getDuelDesc());
+        vo.setLeaderId(aggDuel.getLeaderId());
+        vo.setDepositPerMember(aggDuel.getDepositPerMember());
+        vo.setTotalDays(aggDuel.getTotalDays());
+        vo.setStartDate(aggDuel.getStartDate());
+        vo.setEndDate(aggDuel.getEndDate());
+        vo.setStatus(aggDuel.getStatus());
+        vo.setMemberCount(aggDuel.getMemberCount());
+        vo.setTotalPool(aggDuel.getTotalPool());
+        vo.setSettled(aggDuel.getSettled() != null && aggDuel.getSettled() == 1);
+
+        List<DuelVO.MemberVO> memberVOs = new ArrayList<>(agg.getMembers().size());
         DuelVO.MemberVO myMemberVo = null;
-        List<DuelVO.MemberVO> memberVOs = new ArrayList<>(members.size());
-        for (DuelMember member : members) {
+        for (DuelAggData.MemberLine line : agg.getMembers()) {
             DuelVO.MemberVO mv = new DuelVO.MemberVO();
-            mv.setUserId(member.getUserId());
-            mv.setDeposit(member.getDeposit());
-            mv.setStatus(member.getStatus());
-            mv.setIsLeader(member.getUserId().equals(duel.getLeaderId()));
-            User user = users.get(member.getUserId());
-            if (user != null) {
-                mv.setUserName(user.getUserName());
-                mv.setUserAvatar(user.getUserAvatar());
-            }
-            mv.setDays(countConfirmedDays(member, duel, today));
+            mv.setUserId(line.getUserId());
+            mv.setUserName(line.getUserName());
+            mv.setUserAvatar(line.getUserAvatar());
+            mv.setIsLeader(line.isLeader());
+            mv.setDeposit(line.getDeposit());
+            mv.setStatus(line.getStatus());
+            mv.setDays(line.getDays());
             memberVOs.add(mv);
-            if (member.getUserId().equals(userId)) {
+            if (line.getUserId().equals(userId)) {
                 myMemberVo = mv;
             }
         }
         vo.setMembers(memberVOs);
-        if (userId.equals(duel.getLeaderId())) {
+        if (userId.equals(aggDuel.getLeaderId())) {
             vo.setMyRole("leader");
             vo.setPendingCount(checkInEvidenceMapper.selectCount(new LambdaQueryWrapper<CheckInEvidence>()
                     .eq(CheckInEvidence::getDuelId, duel.getId())
@@ -344,13 +359,43 @@ public class DuelServiceImpl extends ServiceImpl<DuelMapper, Duel> implements Du
         } else if (myMemberVo != null) {
             vo.setMyRole("member");
         }
-        // 我的影子计划
+        // 我的影子计划（实时查询，个性化字段）
         DuelMember mine = getMember(duel.getId(), userId);
         if (mine != null && mine.getStatus() != DuelConstant.MEMBER_STATUS_QUIT) {
             vo.setMyStatus(mine.getStatus());
             vo.setMyPlanId(mine.getPlanId());
         }
         return vo;
+    }
+
+    /**
+     * 从数据库装载观看者无关聚合（挑战 + 成员 + 确认天数）
+     */
+    private DuelAggData loadAggregate(Long duelId) {
+        Duel duel = getById(duelId);
+        ThrowUtils.throwIf(duel == null, ErrorCode.NOT_FOUND_ERROR, "死斗不存在");
+        LocalDate today = LocalDate.now(CheckInConstant.BIZ_ZONE);
+        List<DuelMember> members = activeMembers(duelId);
+        Map<Long, User> users = userMap(members);
+        DuelAggData agg = new DuelAggData();
+        agg.setDuel(duel);
+        List<DuelAggData.MemberLine> lines = new ArrayList<>(members.size());
+        for (DuelMember member : members) {
+            DuelAggData.MemberLine line = new DuelAggData.MemberLine();
+            line.setUserId(member.getUserId());
+            User user = users.get(member.getUserId());
+            if (user != null) {
+                line.setUserName(user.getUserName());
+                line.setUserAvatar(user.getUserAvatar());
+            }
+            line.setLeader(member.getUserId().equals(duel.getLeaderId()));
+            line.setDeposit(member.getDeposit());
+            line.setStatus(member.getStatus());
+            line.setDays(countConfirmedDays(member, duel, today));
+            lines.add(line);
+        }
+        agg.setMembers(lines);
+        return agg;
     }
 
     private Map<Long, User> userMap(List<DuelMember> members) {

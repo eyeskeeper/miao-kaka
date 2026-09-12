@@ -1,5 +1,9 @@
 # 生产环境配置：敏感信息一律走环境变量，不进代码与镜像
 spring:
+  data:
+    redis:
+      host: ${REDIS_HOST:redis}
+      port: ${REDIS_PORT:6379}
   datasource:
     driver-class-name: com.mysql.cj.jdbc.Driver
     url: jdbc:mysql://${MYSQL_HOST:mysql}:${MYSQL_PORT:3306}/${MYSQL_DB:miaokaka}?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai
@@ -15,6 +19,8 @@ jwt:
 
 # 自定义配置（生产）
 app:
+  cache:
+    enabled: ${CACHE_ENABLED:false}
   upload-dir: ${UPLOAD_DIR:/data/uploads}
   ai:
     vision:

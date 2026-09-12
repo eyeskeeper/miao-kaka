@@ -18,11 +18,23 @@ services:
       retries: 10
     restart: unless-stopped
 
+  redis:
+    image: redis:7-alpine
+    container_name: miaokaka-redis
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
   app:
     build: .
     container_name: miaokaka-app
     depends_on:
       mysql:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     environment:
       MYSQL_HOST: mysql
@@ -36,6 +48,8 @@ services:
       UPLOAD_DIR: /data/uploads
       VISION_ENABLED: ${VISION_ENABLED:-false}
       ZHIPU_VISION_API_KEY: ${ZHIPU_VISION_API_KEY:-}
+      CACHE_ENABLED: ${CACHE_ENABLED:-true}
+      REDIS_HOST: redis
     volumes:
       - upload-data:/data/uploads
     expose:

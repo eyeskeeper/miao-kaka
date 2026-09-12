@@ -20,8 +20,10 @@ import com.senze.miaokaka.model.dto.user.UserRegisterRequest;
 import com.senze.miaokaka.model.entity.User;
 import com.senze.miaokaka.model.vo.LoginResponseVO;
 import com.senze.miaokaka.model.vo.LoginUserVO;
+import com.senze.miaokaka.model.vo.RankCacheData;
 import com.senze.miaokaka.model.vo.RankItemVO;
 import com.senze.miaokaka.model.vo.UserVO;
+import com.senze.miaokaka.service.CacheService;
 import com.senze.miaokaka.service.UserService;
 import com.senze.miaokaka.service.WalletService;
 import com.senze.miaokaka.utils.JwtUtils;
@@ -46,6 +48,8 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
     private final JwtProperties jwtProperties;
 
     private final WalletService walletService;
+
+    private final CacheService cacheService;
 
     @Override
     public long register(UserRegisterRequest request) {
@@ -125,11 +129,20 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
         target.setUserRole(Boolean.TRUE.equals(request.getIsBan())
                 ? UserConstant.BAN_ROLE
                 : UserConstant.DEFAULT_ROLE);
-        return updateById(target);
+        boolean updated = updateById(target);
+        if (updated) {
+            // 逐出登录态缓存 → 封禁毫秒级生效；连击榜同步剔除
+            cacheService.evict(CacheService.keyUser(target.getId()), CacheService.KEY_RANK_STREAK);
+        }
+        return updated;
     }
 
     @Override
     public List<RankItemVO> streakRank() {
+        RankCacheData cached = cacheService.get(CacheService.KEY_RANK_STREAK, RankCacheData.class);
+        if (cached != null && cached.getItems() != null) {
+            return cached.getItems();
+        }
         QueryWrapper<User> wrapper = new QueryWrapper<>();
         wrapper.ne("user_role", UserConstant.BAN_ROLE);
         wrapper.gt("current_streak", 0);
@@ -148,6 +161,9 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
             vo.setCurrentStreak(user.getCurrentStreak());
             result.add(vo);
         }
+        RankCacheData cacheData = new RankCacheData();
+        cacheData.setItems(result);
+        cacheService.put(CacheService.KEY_RANK_STREAK, cacheData, java.time.Duration.ofMinutes(5));
         return result;
     }
 
