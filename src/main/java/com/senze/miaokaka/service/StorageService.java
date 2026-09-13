@@ -3,19 +3,20 @@ package com.senze.miaokaka.service;
 import org.springframework.web.multipart.MultipartFile;
 
 /**
- * 文件存储抽象（一期本地磁盘，二期可换 OSS 实现类）
+ * 文件存储抽象：一期本地磁盘（LocalStorageService），配置 `app.storage.type=oss` 时
+ * 切换阿里云 OSS（OssStorageService）。两者都负责服务端压缩生成预览图。
  *
  * @author <a href="https://github.com/eyeskeeper">冉森</a>
  */
 public interface StorageService {
 
     /**
-     * 存储图片，返回可公开访问的相对 URL（如 /uploads/2026/09/11/uuid.jpg）
+     * 存储图片：原图 + 服务端压缩的预览图，返回两个可公开访问的 URL
      */
-    String storeImage(MultipartFile file);
+    StoredImage storeImage(MultipartFile file);
 
     /**
-     * 相对 URL → 本地文件路径（AI 预审读取用）
+     * 读取已存储图片的字节（AI 预审用）
      */
-    java.nio.file.Path resolve(String url);
+    byte[] readAllBytes(String url);
 }

@@ -3,7 +3,9 @@ package com.senze.miaokaka.controller;
 import com.senze.miaokaka.common.BaseResponse;
 import com.senze.miaokaka.common.ResultUtils;
 import com.senze.miaokaka.model.entity.User;
+import com.senze.miaokaka.service.EvidenceAiPreCheckService;
 import com.senze.miaokaka.service.StorageService;
+import com.senze.miaokaka.service.StoredImage;
 import com.senze.miaokaka.service.UserService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -33,14 +35,19 @@ public class UploadController {
     private StorageService storageService;
 
     @Resource
+    private EvidenceAiPreCheckService evidenceAiPreCheckService;
+
+    @Resource
     private UserService userService;
 
     @PostMapping("/image")
-    @Operation(summary = "上传图片", description = "≤5MB，jpg/jpeg/png/webp；返回可访问的 /uploads/... URL")
+    @Operation(summary = "上传图片", description = "≤5MB，jpg/jpeg/png/webp；服务端压缩生成预览图；返回原图与预览图两个 URL；AI 凭证预审扩展点在此触发（开关开启时）")
     public BaseResponse<Map<String, String>> image(@RequestParam("file") MultipartFile file,
                                                    HttpServletRequest servletRequest) {
         userService.getLoginUser(servletRequest);
-        String url = storageService.storeImage(file);
-        return ResultUtils.success(Map.of("url", url));
+        StoredImage stored = storageService.storeImage(file);
+        // 预留的 AI 审核扩展点：上传成功此刻预审（开关关闭时为空操作）
+        evidenceAiPreCheckService.preCheck(stored.url());
+        return ResultUtils.success(Map.of("url", stored.url(), "previewUrl", stored.previewUrl()));
     }
 }

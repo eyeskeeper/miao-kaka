@@ -50,6 +50,11 @@ services:
       ZHIPU_VISION_API_KEY: ${ZHIPU_VISION_API_KEY:-}
       CACHE_ENABLED: ${CACHE_ENABLED:-true}
       REDIS_HOST: redis
+      STORAGE_TYPE: ${STORAGE_TYPE:-local}
+      ALIYUN_OSS_ENDPOINT: ${ALIYUN_OSS_ENDPOINT:-}
+      ALIYUN_OSS_BUCKET: ${ALIYUN_OSS_BUCKET:-}
+      ALIYUN_OSS_ACCESS_KEY_ID: ${ALIYUN_OSS_ACCESS_KEY_ID:-}
+      ALIYUN_OSS_ACCESS_KEY_SECRET: ${ALIYUN_OSS_ACCESS_KEY_SECRET:-}
     volumes:
       - upload-data:/data/uploads
     expose:

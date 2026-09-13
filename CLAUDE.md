@@ -33,7 +33,8 @@ miao-kaka（喵卡卡）是一个打卡类应用的 Spring Boot 后端：用户�
 - `service/WalletService` — 喵币账本：原子条件更新扣押金、每笔流水写 `balance_after` 可重放对账
 - `service/CacheService` — Redis 缓存薄封装（`app.cache.enabled` 开关，默认关；关闭时行为与无缓存一致）。硬性原则：钱的数据（喵币/押金/审核）绝不缓存；Cache-Aside + 写时逐出 + TTL 兜底；Redis 异常一律降级直读 DB。三个缓存点：`miaokaka:user:{id}`（登录态，密码脱敏，TTL 5min）、`miaokaka:rank:streak:top50`（TTL 5min）、`miaokaka:duel:agg:{id}`（观看者无关聚合层，60s，个性化字段实时拼装防视角泄漏）。用户行/死斗写路径需记得逐出
 - `service/NudgeService` — 拍一拍（组内提醒）：模板文案入库（`user.nudge_text`），**拍一拍行为与消息只存 Redis**（收件箱 List 当日北京时间 24 点过期，`CacheService` 的 List/计数器扩展承担，故障时友好"暂不可用"）；频控 A 每日 5 次、收件箱上限 20；读取即消费
-- `service/StorageService`（本地磁盘实现）/ `VisionReviewService`（GLM-4V 走 OpenAI 兼容端点，RestClient + 虚拟线程限时）
+- `service/StorageService` — 文件存储抽象，双实现按 `app.storage.type` 条件装配（默认 `local` 本地磁盘；`oss`=阿里云 OSS，凭证走 `ALIYUN_*` 环境变量）。`storeImage` 返回原图+预览图双 URL（服务端 `ImageUtils` 压缩：≤750px/JPEG 0.7/白底），`readAllBytes` 供 AI 读图
+- `service/EvidenceAiPreCheckService` — 凭证 AI 预审扩展点（预留方法）：图片存储成功即预审，结论缓存 Redis（TTL 7 天），死斗凭证提交时消费；`app.ai.vision.*` 开关关闭时全链路空操作。视觉服务 GLM-4V 走 OpenAI 兼容端点，RestClient + 虚拟线程限时
 - `mapper/` — MyBatis Plus `BaseMapper`（注意：3.5.17 中 `IService/ServiceImpl` 在 `com.baomidou.mybatisplus.spring.service(.impl)` 包，分页拦截器在独立构件 `mybatis-plus-jsqlparser`）
 - `model/entity|dto|vo` — 实体 / 请求 / 响应对象
 - `interceptor/JwtInterceptor` — 登录态 + 角色校验，每请求回库取用户（封禁即时生效），登录用户放 request 属性 `user_login`

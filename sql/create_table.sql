@@ -202,6 +202,7 @@ create table `check_in_evidence`
     duel_id        bigint                             not null comment '死斗id',
     user_id        bigint                             not null comment '打卡用户id',
     image_path     varchar(1024)                      not null comment '凭证图片存储路径（相对）',
+    image_preview_path varchar(1024)                  default null comment '预览图路径（服务端压缩小图，历史数据为空则回退原图）',
     review_status  tinyint                            default 0 not null comment '审核状态 (0:待审核, 1:通过, 2:驳回)',
     reviewer_id    bigint                             default null comment '审核人id（组长）',
     is_self_review tinyint                            default 0 not null comment '是否组长自审（公示标记）',

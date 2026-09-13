@@ -22,9 +22,14 @@ public class ReviewItemVO implements Serializable {
     private String userAvatar;
 
     /**
-     * 凭证图片 URL
+     * 凭证原图 URL
      */
     private String imageUrl;
+
+    /**
+     * 凭证预览图 URL（服务端压缩小图，历史数据可能为空）
+     */
+    private String previewUrl;
 
     private LocalDate checkInDate;
 

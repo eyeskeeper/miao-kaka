@@ -28,7 +28,15 @@ app:
   # Redis 缓存开关（本机 Redis 已启动；关闭时所有缓存读写直接跳过，行为与无缓存一致）
   cache:
     enabled: true
-  # 上传图片存储目录（本地磁盘实现，二期可换 OSS）
+  # 文件存储：local=本地磁盘（默认）；oss=阿里云 OSS（需配 oss 凭证）
+  storage:
+    type: local
+    oss:
+      endpoint:
+      access-key-id:
+      access-key-secret:
+      bucket:
+  # 上传图片存储目录（local 模式）
   upload-dir: ./data/uploads
   ai:
     vision:

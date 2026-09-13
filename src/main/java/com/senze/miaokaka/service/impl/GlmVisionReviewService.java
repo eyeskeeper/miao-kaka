@@ -6,11 +6,8 @@ import com.senze.miaokaka.service.VisionReviewService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
-import org.springframework.util.MimeTypeUtils;
 import org.springframework.web.client.RestClient;
 
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.util.Base64;
 import java.util.List;
 import java.util.Map;
@@ -54,11 +51,11 @@ public class GlmVisionReviewService implements VisionReviewService {
     }
 
     @Override
-    public Optional<VisionVerdict> review(Path imagePath, String context) {
-        if (!isAvailable() || !Files.exists(imagePath)) {
+    public Optional<VisionVerdict> review(byte[] imageBytes, String mime, String context) {
+        if (!isAvailable() || imageBytes == null || imageBytes.length == 0) {
             return Optional.empty();
         }
-        Future<Optional<VisionVerdict>> future = visionExecutor.submit(() -> doReview(imagePath, context));
+        Future<Optional<VisionVerdict>> future = visionExecutor.submit(() -> doReview(imageBytes, mime, context));
         try {
             return future.get(properties.getTimeoutSeconds(), TimeUnit.SECONDS);
         } catch (Exception e) {
@@ -68,13 +65,10 @@ public class GlmVisionReviewService implements VisionReviewService {
         }
     }
 
-    private Optional<VisionVerdict> doReview(Path imagePath, String context) {
+    private Optional<VisionVerdict> doReview(byte[] imageBytes, String mime, String context) {
         try {
-            String mime = MimeTypeUtils.parseMimeType(Files.probeContentType(imagePath)) == null
-                    ? "image/jpeg"
-                    : Files.probeContentType(imagePath);
-            String dataUrl = "data:" + mime + ";base64,"
-                    + Base64.getEncoder().encodeToString(Files.readAllBytes(imagePath));
+            String dataUrl = "data:" + (StrUtil.blankToDefault(mime, "image/jpeg"))
+                    + ";base64," + Base64.getEncoder().encodeToString(imageBytes);
             Map<String, Object> body = Map.of(
                     "model", properties.getModel(),
                     "messages", List.of(

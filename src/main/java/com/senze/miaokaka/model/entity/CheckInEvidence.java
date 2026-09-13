@@ -46,6 +46,11 @@ public class CheckInEvidence implements Serializable {
     private String imagePath;
 
     /**
+     * 预览图路径（服务端压缩小图，历史数据为空则回退原图）
+     */
+    private String imagePreviewPath;
+
+    /**
      * 审核状态 (0:待审核, 1:通过, 2:驳回)
      */
     private Integer reviewStatus;

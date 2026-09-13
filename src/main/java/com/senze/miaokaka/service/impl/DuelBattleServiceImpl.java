@@ -22,7 +22,9 @@ import com.senze.miaokaka.model.vo.ReviewItemVO;
 import com.senze.miaokaka.service.CheckInRecordService;
 import com.senze.miaokaka.service.CacheService;
 import com.senze.miaokaka.service.DuelBattleService;
+import com.senze.miaokaka.service.EvidenceAiPreCheckService;
 import com.senze.miaokaka.service.StorageService;
+import com.senze.miaokaka.service.StoredImage;
 import com.senze.miaokaka.service.VisionReviewService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -67,6 +69,8 @@ public class DuelBattleServiceImpl extends ServiceImpl<DuelMemberMapper, DuelMem
 
     private final CacheService cacheService;
 
+    private final EvidenceAiPreCheckService evidenceAiPreCheckService;
+
     // region 打卡
 
     @Override
@@ -82,8 +86,8 @@ public class DuelBattleServiceImpl extends ServiceImpl<DuelMemberMapper, DuelMem
         ThrowUtils.throwIf(today.isBefore(duel.getStartDate()) || today.isAfter(duel.getEndDate()),
                 ErrorCode.OPERATION_ERROR, "今日不在挑战期内");
 
-        // 存凭证（校验格式/大小）
-        String imageUrl = storageService.storeImage(image);
+        // 存凭证（原图+服务端压缩预览图，校验格式/大小）
+        StoredImage stored = storageService.storeImage(image);
 
         // 打卡记录（待审核态，唯一键防重复）+ 凭证，同事务
         CheckInRecord record = transactionTemplate.execute(status -> {
@@ -104,15 +108,16 @@ public class DuelBattleServiceImpl extends ServiceImpl<DuelMemberMapper, DuelMem
             evidence.setRecordId(r.getRecordId());
             evidence.setDuelId(duelId);
             evidence.setUserId(userId);
-            evidence.setImagePath(imageUrl);
+            evidence.setImagePath(stored.url());
+            evidence.setImagePreviewPath(stored.previewUrl());
             evidence.setReviewStatus(DuelConstant.REVIEW_STATUS_PENDING);
             evidence.setIsSelfReview(0);
             checkInEvidenceMapper.insert(evidence);
             return r;
         });
 
-        // AI 预审（可选）：写建议，不决定结果
-        applyAiSuggestion(duel, record.getRecordId(), imageUrl);
+        // AI 预审（可选）：消费上传时已缓存的结论（无则此刻补审），只写建议不决定结果
+        applyAiSuggestion(record.getRecordId(), stored.url());
 
         // 组长本人打卡：AI 可用则 AI 结论直接生效（公示），否则留在待审由组长自审
         boolean isLeader = duel.getLeaderId().equals(userId);
@@ -165,6 +170,7 @@ public class DuelBattleServiceImpl extends ServiceImpl<DuelMemberMapper, DuelMem
                 vo.setUserAvatar(user.getUserAvatar());
             }
             vo.setImageUrl(e.getImagePath());
+            vo.setPreviewUrl(e.getImagePreviewPath());
             vo.setAiSuggestion(e.getAiSuggestion());
             vo.setAiReason(e.getAiReason());
             CheckInRecord record = records.get(e.getRecordId());
@@ -235,23 +241,20 @@ public class DuelBattleServiceImpl extends ServiceImpl<DuelMemberMapper, DuelMem
 
     // region 内部工具
 
-    private void applyAiSuggestion(Duel duel, Long recordId, String imageUrl) {
-        if (!visionReviewService.isAvailable()) {
-            return;
-        }
-        try {
-            Path path = storageService.resolve(imageUrl);
-            visionReviewService.review(path, duel.getDuelName()).ifPresent(verdict -> {
-                CheckInEvidence evidence = getEvidenceByRecord(recordId);
-                if (evidence != null) {
-                    evidence.setAiSuggestion(verdict.suggestApprove() ? 0 : 1);
-                    evidence.setAiReason(StrUtil.blankToDefault(verdict.reason(), null));
-                    checkInEvidenceMapper.updateById(evidence);
-                }
-            });
-        } catch (Exception e) {
-            log.warn("AI 预审写入失败（不影响打卡流程）：{}", e.getMessage());
-        }
+    /**
+     * 消费上传时已缓存的 AI 预审结论写入凭证（上传时由 EvidenceAiPreCheckService 预审并缓存；
+     * 若无缓存——如历史图片——则此处补审一次）。开关关闭时为空操作。
+     */
+    private void applyAiSuggestion(Long recordId, String imageUrl) {
+        evidenceAiPreCheckService.preCheck(imageUrl);
+        evidenceAiPreCheckService.consume(imageUrl).ifPresent(verdict -> {
+            CheckInEvidence evidence = getEvidenceByRecord(recordId);
+            if (evidence != null) {
+                evidence.setAiSuggestion(verdict.suggestApprove() ? 0 : 1);
+                evidence.setAiReason(StrUtil.blankToDefault(verdict.reason(), null));
+                checkInEvidenceMapper.updateById(evidence);
+            }
+        });
     }
 
     private CheckInEvidence getEvidenceByRecord(Long recordId) {
