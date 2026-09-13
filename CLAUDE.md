@@ -30,6 +30,7 @@ miao-kaka（喵卡卡）是一个打卡类应用的 Spring Boot 后端：用户�
 - `service/DuelService|DuelBattleService|DuelSettlementService` — 死斗生命周期（创建/加入/退出/影子计划/开赛）、打卡凭证与审核、幂等结算
 - `service/WalletService` — 喵币账本：原子条件更新扣押金、每笔流水写 `balance_after` 可重放对账
 - `service/CacheService` — Redis 缓存薄封装（`app.cache.enabled` 开关，默认关；关闭时行为与无缓存一致）。硬性原则：钱的数据（喵币/押金/审核）绝不缓存；Cache-Aside + 写时逐出 + TTL 兜底；Redis 异常一律降级直读 DB。三个缓存点：`miaokaka:user:{id}`（登录态，密码脱敏，TTL 5min）、`miaokaka:rank:streak:top50`（TTL 5min）、`miaokaka:duel:agg:{id}`（观看者无关聚合层，60s，个性化字段实时拼装防视角泄漏）。用户行/死斗写路径需记得逐出
+- `service/NudgeService` — 拍一拍（组内提醒）：模板文案入库（`user.nudge_text`），**拍一拍行为与消息只存 Redis**（收件箱 List 当日北京时间 24 点过期，`CacheService` 的 List/计数器扩展承担，故障时友好"暂不可用"）；频控 A 每日 5 次、收件箱上限 20；读取即消费
 - `service/StorageService`（本地磁盘实现）/ `VisionReviewService`（GLM-4V 走 OpenAI 兼容端点，RestClient + 虚拟线程限时）
 - `mapper/` — MyBatis Plus `BaseMapper`（注意：3.5.17 中 `IService/ServiceImpl` 在 `com.baomidou.mybatisplus.spring.service(.impl)` 包，分页拦截器在独立构件 `mybatis-plus-jsqlparser`）
 - `model/entity|dto|vo` — 实体 / 请求 / 响应对象

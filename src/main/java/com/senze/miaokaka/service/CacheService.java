@@ -97,4 +97,86 @@ public class CacheService {
             log.warn("缓存逐出失败（TTL 兜底会清理）：keys={}, 原因={}", String.join(",", keys), e.getMessage());
         }
     }
+
+    // region 以下为非缓存数据结构操作（如拍一拍收件箱/频控计数器，Redis 是唯一落点）。
+    // 与缓存不同：这里 Redis 就是数据本身，故障时返回 null 由调用方拒绝服务，绝不静默丢失
+
+    /**
+     * 自增计数；首次自增或每次调用都刷新 TTL。
+     *
+     * @return 自增后的值；Redis 故障返回 null
+     */
+    public Long increment(String key, Duration ttl) {
+        if (!enabled) {
+            return null;
+        }
+        try {
+            Long value = redisTemplate.opsForValue().increment(key);
+            if (value != null) {
+                redisTemplate.expire(key, ttl);
+            }
+            return value;
+        } catch (Exception e) {
+            log.warn("计数器操作失败：key={}, 原因={}", key, e.getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * @return List 长度；Redis 故障返回 null
+     */
+    public Long listSize(String key) {
+        if (!enabled) {
+            return null;
+        }
+        try {
+            return redisTemplate.opsForList().size(key);
+        } catch (Exception e) {
+            log.warn("List 长度查询失败：key={}, 原因={}", key, e.getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * 尾插一条消息（JSON 序列化）并刷新整个 List 的 TTL
+     */
+    public void listPush(String key, Object value, Duration ttl) {
+        try {
+            redisTemplate.opsForList().rightPush(key, JSON_MAPPER.writeValueAsString(value));
+            redisTemplate.expire(key, ttl);
+        } catch (Exception e) {
+            log.warn("List 写入失败：key={}, 原因={}", key, e.getMessage());
+        }
+    }
+
+    /**
+     * 读取整个 List（不删除）。
+     *
+     * @return 元素列表（可能为空）；Redis 故障返回 null
+     */
+    public <T> List<T> listRange(String key, Class<T> elementType) {
+        if (!enabled) {
+            return null;
+        }
+        try {
+            List<String> raw = redisTemplate.opsForList().range(key, 0, -1);
+            if (raw == null) {
+                return null;
+            }
+            List<T> result = new java.util.ArrayList<>(raw.size());
+            for (String entry : raw) {
+                try {
+                    result.add(JSON_MAPPER.readValue(entry, elementType));
+                } catch (Exception e) {
+                    log.warn("List 元素解析失败，跳过：key={}, entry={}", key, entry);
+                }
+            }
+            return result;
+        } catch (Exception e) {
+            log.warn("List 读取失败：key={}, 原因={}", key, e.getMessage());
+            return null;
+        }
+    }
+
+    // endregion
 }

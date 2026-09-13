@@ -87,6 +87,11 @@ public class User implements Serializable {
     private Integer miaoCoins;
 
     /**
+     * 拍一拍模板文案（空则用系统默认）
+     */
+    private String nudgeText;
+
+    /**
      * 创建时间
      */
     private Date createTime;

@@ -18,6 +18,7 @@ create table if not exists user
     current_streak int          default 0                 comment '全勤连击天数（当天全部进行中计划都完成才累计）',
     total_points   int          default 0                 comment '当前可用积分余额',
     miao_coins     int          default 1000              comment '喵币余额（押金货币，注册赠送1000）',
+    nudge_text     varchar(20)                            default null comment '拍一拍模板文案（空则用系统默认）',
     create_time    datetime     default current_timestamp not null comment '创建时间',
     update_time    datetime     default current_timestamp not null on update current_timestamp comment '更新时间',
     is_delete      tinyint      default 0                 not null comment '是否删除',

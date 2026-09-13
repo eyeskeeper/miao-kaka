@@ -7,9 +7,11 @@ import com.senze.miaokaka.model.dto.duel.ReviewRequest;
 import com.senze.miaokaka.model.entity.User;
 import com.senze.miaokaka.model.vo.CheckInResultVO;
 import com.senze.miaokaka.model.vo.DuelVO;
+import com.senze.miaokaka.model.vo.NudgeSentVO;
 import com.senze.miaokaka.model.vo.ReviewItemVO;
 import com.senze.miaokaka.service.DuelBattleService;
 import com.senze.miaokaka.service.DuelService;
+import com.senze.miaokaka.service.NudgeService;
 import com.senze.miaokaka.service.UserService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -44,6 +46,9 @@ public class DuelController {
 
     @Resource
     private DuelBattleService duelBattleService;
+
+    @Resource
+    private NudgeService nudgeService;
 
     @Resource
     private UserService userService;
@@ -81,6 +86,15 @@ public class DuelController {
     public BaseResponse<DuelVO> quit(@PathVariable Long duelId, HttpServletRequest servletRequest) {
         User user = userService.getLoginUser(servletRequest);
         return ResultUtils.success(duelService.quit(user.getId(), duelId));
+    }
+
+    @PostMapping("/{duelId}/nudge/{targetUserId}")
+    @Operation(summary = "拍一下", description = "同死斗成员互拍；文案=我的模板→系统默认；发起方每日限 5 次（北京午夜重置）；对方收件箱上限 20 条（当日过期）；消息不落数据库")
+    public BaseResponse<NudgeSentVO> nudge(@PathVariable Long duelId,
+                                           @PathVariable Long targetUserId,
+                                           HttpServletRequest servletRequest) {
+        User user = userService.getLoginUser(servletRequest);
+        return ResultUtils.success(nudgeService.nudge(user.getId(), duelId, targetUserId));
     }
 
     @PostMapping("/{duelId}/check_in")
