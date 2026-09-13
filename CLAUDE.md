@@ -6,6 +6,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 miao-kaka（喵卡卡）是一个打卡类应用的 Spring Boot 后端：用户创建打卡计划（每计划自动领养一只"猫精灵"），每日按计划打卡触发随机事件（攻击 BOSS / 属性提升 / 暴击），连续打卡获得连击加成，积分可用于补卡。接入 Spring AI（DeepSeek）实现 AI 生成打卡计划草稿与打卡后的猫口吻鼓励语。一期范围：用户认证（JWT）、个人打卡、猫养成、AI 助手、连击排行榜、最小管理端。
 
+各阶段设计决策与验收记录归档于 `docs/superpowers/specs/`（一期核心、死斗模式、任务勾选、Redis 缓存、拍一拍），CLAUDE.md 只保留当前架构快照。
+
 二期新增两种打卡形式（设计文档见 `docs/superpowers/specs/2026-09-11-duel-and-focus-design.md`）：
 
 - **习惯死斗模式**：多人组队押金对抗。虚拟"喵币"账户（注册赠 1000，`/wallet` 可查流水）托管，按出勤比例返还、被没收部分逐笔按其余成员天数占比再分配（`utils/SettlementCalculator` 纯函数 + 单测）；打卡需上传照片凭证（`/duel/{id}/check_in`），记录进入待审核态（status=3），组长（或 AI 视觉模型 GLM-4V 预审，配置开关 `app.ai.vision.*`）审核通过那一刻才触发猫事件结算；成员加入即自动创建"影子计划"（`plan_source=2`，绑定 `duel_id`）复用整个打卡引擎，影子计划被护栏封闭（禁普通打卡/补卡/删除/手动暂停）。结算幂等（`duel.settled` 条件更新抢占 + 定时任务 `config/DuelScheduler` + 详情访问 lazy 兜底）；结束时任然待审核的凭证自动视为通过。合规要点：一期用虚拟押金规避资金二清，押金网关抽象待二期换真实支付。
