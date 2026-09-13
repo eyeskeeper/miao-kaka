@@ -2,17 +2,17 @@ package com.senze.miaokaka.controller;
 
 import com.senze.miaokaka.common.BaseResponse;
 import com.senze.miaokaka.common.ResultUtils;
-import com.senze.miaokaka.model.vo.RankItemVO;
+import com.senze.miaokaka.model.entity.User;
+import com.senze.miaokaka.model.vo.RankBoardVO;
 import com.senze.miaokaka.service.UserService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.annotation.Resource;
+import jakarta.servlet.http.HttpServletRequest;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
-
-import java.util.List;
 
 /**
  * 排行榜接口
@@ -29,8 +29,9 @@ public class RankController {
     private UserService userService;
 
     @GetMapping("/streak")
-    @Operation(summary = "全勤连击 Top 50", description = "按全勤连击天数排序（当天全部进行中计划都完成才累计）")
-    public BaseResponse<List<RankItemVO>> streakRank() {
-        return ResultUtils.success(userService.streakRank());
+    @Operation(summary = "全勤连击榜", description = "Top 50 + 当前用户排名 myRank（Top 50 内取榜单名次，50 外实时补算，零连击为 null）")
+    public BaseResponse<RankBoardVO> streakRank(HttpServletRequest servletRequest) {
+        User user = userService.getLoginUser(servletRequest);
+        return ResultUtils.success(userService.streakBoard(user.getId()));
     }
 }

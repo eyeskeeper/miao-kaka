@@ -20,6 +20,7 @@ import com.senze.miaokaka.model.dto.user.UserRegisterRequest;
 import com.senze.miaokaka.model.entity.User;
 import com.senze.miaokaka.model.vo.LoginResponseVO;
 import com.senze.miaokaka.model.vo.LoginUserVO;
+import com.senze.miaokaka.model.vo.RankBoardVO;
 import com.senze.miaokaka.model.vo.RankCacheData;
 import com.senze.miaokaka.model.vo.RankItemVO;
 import com.senze.miaokaka.model.vo.UserVO;
@@ -138,7 +139,37 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
     }
 
     @Override
-    public List<RankItemVO> streakRank() {
+    public RankBoardVO streakBoard(Long userId) {
+        List<RankItemVO> items = loadStreakTop50();
+        RankBoardVO board = new RankBoardVO();
+        board.setList(items);
+        board.setMyRank(myStreakRank(userId, items));
+        return board;
+    }
+
+    /**
+     * 当前用户排名：Top 50 内直接取榜单名次；50 外按与榜单完全相同的口径
+     * （连击降序、id 升序、排除封禁）实时补算；零连击无排名
+     */
+    private Integer myStreakRank(Long userId, List<RankItemVO> items) {
+        for (RankItemVO item : items) {
+            if (item.getUserId().equals(userId)) {
+                return item.getRank();
+            }
+        }
+        User me = getById(userId);
+        if (me == null || me.getCurrentStreak() == null || me.getCurrentStreak() <= 0) {
+            return null;
+        }
+        int streak = me.getCurrentStreak();
+        QueryWrapper<User> wrapper = new QueryWrapper<>();
+        wrapper.ne("user_role", UserConstant.BAN_ROLE);
+        wrapper.and(q -> q.gt("current_streak", streak)
+                .or(o -> o.eq("current_streak", streak).lt("id", userId)));
+        return (int) count(wrapper) + 1;
+    }
+
+    private List<RankItemVO> loadStreakTop50() {
         RankCacheData cached = cacheService.get(CacheService.KEY_RANK_STREAK, RankCacheData.class);
         if (cached != null && cached.getItems() != null) {
             return cached.getItems();

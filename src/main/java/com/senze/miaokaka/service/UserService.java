@@ -8,6 +8,7 @@ import com.senze.miaokaka.model.dto.user.UserRegisterRequest;
 import com.senze.miaokaka.model.entity.User;
 import com.senze.miaokaka.model.vo.LoginResponseVO;
 import com.senze.miaokaka.model.vo.LoginUserVO;
+import com.senze.miaokaka.model.vo.RankBoardVO;
 import com.senze.miaokaka.model.vo.RankItemVO;
 import com.senze.miaokaka.model.vo.UserVO;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
@@ -52,7 +53,8 @@ public interface UserService extends IService<User> {
     boolean banUser(UserBanRequest request);
 
     /**
-     * 全勤连击 Top 50
+     * 全勤连击榜：Top 50（走缓存）+ 当前用户排名 myRank
+     * （Top 50 内取榜单名次；50 外按同口径实时补算；零连击为 null）
      */
-    List<RankItemVO> streakRank();
+    RankBoardVO streakBoard(Long userId);
 }
