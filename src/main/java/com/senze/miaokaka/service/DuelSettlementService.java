@@ -24,8 +24,13 @@ public interface DuelSettlementService {
     void settleAllDue();
 
     /**
-     * 每日即退：凭证审核通过当天，退还当日份额 floor(押金/T) 并累计成员 refunded。
-     * 须在凭证审核通过的事务内调用。
+     * 每日即退：打卡提交当天立即发放当日份额 floor(押金/T) 并累计成员 refunded。
+     * 审核驳回时由 clawbackDaily 追回。
      */
     void dailyRefund(Duel duel, DuelMember member);
+
+    /**
+     * 凭证驳回追回：扣回打卡时已发放的当日份额（允许余额临时为负，保证账目精确）
+     */
+    void clawbackDaily(Duel duel, DuelMember member);
 }

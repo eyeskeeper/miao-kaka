@@ -88,6 +88,19 @@ public class DuelSettlementServiceImpl extends ServiceImpl<DuelMapper, Duel>
         duelMemberMapper.updateById(member);
     }
 
+    @Override
+    public void clawbackDaily(Duel duel, DuelMember member) {
+        int daily = member.getDeposit() / duel.getTotalDays();
+        int refunded = member.getRefunded() == null ? 0 : member.getRefunded();
+        if (daily <= 0 || refunded <= 0) {
+            return;
+        }
+        int clawback = Math.min(daily, refunded);
+        walletService.clawbackDaily(member.getUserId(), clawback, duel.getId());
+        member.setRefunded(refunded - clawback);
+        duelMemberMapper.updateById(member);
+    }
+
     private Boolean doSettle(Long duelId, LocalDate today) {
         // 幂等闸门：条件更新抢占结算权，并发下只有一个事务能成功
         boolean claimed = update(new com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper<Duel>()

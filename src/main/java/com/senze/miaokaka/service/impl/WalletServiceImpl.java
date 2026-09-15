@@ -92,6 +92,22 @@ public class WalletServiceImpl extends ServiceImpl<CoinTransactionMapper, CoinTr
     }
 
     @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void clawbackDaily(Long userId, int amount, Long duelId) {
+        if (amount <= 0) {
+            return;
+        }
+        // 无条件扣减：追回场景允许余额临时为负，保证账目精确
+        LambdaUpdateWrapper<User> uw = new LambdaUpdateWrapper<>();
+        uw.eq(User::getId, userId)
+                .setSql("miao_coins = miao_coins - " + amount);
+        int rows = userMapper.update(null, uw);
+        ThrowUtils.throwIf(rows == 0, ErrorCode.NOT_FOUND_ERROR, "用户不存在");
+        cacheService.evict(CacheService.keyUser(userId));
+        record(userId, DuelConstant.COIN_TX_DAILY_CLAWBACK, -amount, duelId, "凭证驳回，追回当日奖励");
+    }
+
+    @Override
     public int getBalance(Long userId) {
         User user = userMapper.selectById(userId);
         ThrowUtils.throwIf(user == null, ErrorCode.NOT_FOUND_ERROR, "用户不存在");

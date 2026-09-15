@@ -92,7 +92,8 @@ public class DuelBattleServiceImpl extends ServiceImpl<DuelMemberMapper, DuelMem
         // 存凭证（原图+服务端压缩预览图，校验格式/大小）
         StoredImage stored = storageService.storeImage(image);
 
-        // 打卡记录（待审核态，唯一键防重复）+ 凭证，同事务
+        // 打卡记录（待审核态，唯一键防重复）+ 凭证 + 当日奖励即发，同事务：
+        // 打卡立刻拿当日份额，审核驳回再追回（用户体验优先的激励时序）
         CheckInRecord record = transactionTemplate.execute(status -> {
             CheckInRecord r = new CheckInRecord();
             r.setUserId(userId);
@@ -116,6 +117,8 @@ public class DuelBattleServiceImpl extends ServiceImpl<DuelMemberMapper, DuelMem
             evidence.setReviewStatus(DuelConstant.REVIEW_STATUS_PENDING);
             evidence.setIsSelfReview(0);
             checkInEvidenceMapper.insert(evidence);
+            // 当日奖励即发
+            duelSettlementService.dailyRefund(duel, member);
             return r;
         });
 
@@ -139,7 +142,7 @@ public class DuelBattleServiceImpl extends ServiceImpl<DuelMemberMapper, DuelMem
             return vo;
         }
         CheckInResultVO vo = pendingResult(record);
-        vo.setEventDesc("凭证已提交，等待组长审核。审核通过的那一刻，你的猫才会出击！");
+        vo.setEventDesc("凭证已提交，当日奖励已到账；若审核被驳回将追回当日奖励。");
         return vo;
     }
 
@@ -214,21 +217,22 @@ public class DuelBattleServiceImpl extends ServiceImpl<DuelMemberMapper, DuelMem
             if (approve) {
                 evidence.setReviewStatus(DuelConstant.REVIEW_STATUS_APPROVED);
                 checkInEvidenceMapper.updateById(evidence);
-                // 记录状态流转（待审核→正常）由结算方法内部完成并校验
+                // 记录状态流转（待审核→正常）由结算方法内部完成并校验；
+                // 当日奖励已在打卡时即发，通过无需再处理
                 CheckInResultVO settled = checkInRecordService.settleApprovedCheckIn(
                         record.getUserId(), record.getPlanId(), record.getRecordId());
-                // 每日即退：审核通过当天退当日份额 押金/T
-                DuelMember member = getMember(duelId, record.getUserId());
-                if (member != null) {
-                    duelSettlementService.dailyRefund(duel, member);
-                }
                 return settled;
             }
             evidence.setReviewStatus(DuelConstant.REVIEW_STATUS_REJECTED);
             checkInEvidenceMapper.updateById(evidence);
             record.setStatus(CheckInConstant.RECORD_STATUS_ABNORMAL);
             checkInRecordService.updateById(record);
-            // 审核改变成员确认天数（通过+1），逐出死斗聚合缓存
+            // 驳回：追回打卡时已发放的当日奖励（允许余额临时为负，保证账目精确），
+            // 同时审核改变成员确认天数，逐出死斗聚合缓存
+            DuelMember rejectedMember = getMember(duelId, record.getUserId());
+            if (rejectedMember != null) {
+                duelSettlementService.clawbackDaily(duel, rejectedMember);
+            }
             cacheService.evict(CacheService.keyDuelAgg(duelId));
             return null;
         });

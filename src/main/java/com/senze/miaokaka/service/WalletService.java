@@ -32,9 +32,14 @@ public interface WalletService extends IService<CoinTransaction> {
     void awardPoolShare(Long userId, int amount, Long duelId);
 
     /**
-     * 死斗每日打卡退还（审核通过当天退当日份额 押金/T）
+     * 死斗每日打卡退还（打卡提交当天即发当日份额 押金/T）
      */
     void dailyRefund(Long userId, int amount, Long duelId);
+
+    /**
+     * 凭证驳回追回当日奖励（无条件扣减，允许余额临时为负）
+     */
+    void clawbackDaily(Long userId, int amount, Long duelId);
 
     /**
      * 当前余额
