@@ -1,5 +1,8 @@
 package com.senze.miaokaka.service;
 
+import com.senze.miaokaka.model.entity.Duel;
+import com.senze.miaokaka.model.entity.DuelMember;
+
 /**
  * 死斗结算服务（幂等）
  *
@@ -19,4 +22,10 @@ public interface DuelSettlementService {
      * 扫描并结算所有到期死斗（定时任务用）
      */
     void settleAllDue();
+
+    /**
+     * 每日即退：凭证审核通过当天，退还当日份额 floor(押金/T) 并累计成员 refunded。
+     * 须在凭证审核通过的事务内调用。
+     */
+    void dailyRefund(Duel duel, DuelMember member);
 }

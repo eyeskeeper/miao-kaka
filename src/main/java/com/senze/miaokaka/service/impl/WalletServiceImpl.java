@@ -82,6 +82,16 @@ public class WalletServiceImpl extends ServiceImpl<CoinTransactionMapper, CoinTr
     }
 
     @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void dailyRefund(Long userId, int amount, Long duelId) {
+        if (amount <= 0) {
+            return;
+        }
+        addBalance(userId, amount);
+        record(userId, DuelConstant.COIN_TX_DAILY_REFUND, amount, duelId, "死斗每日打卡退还");
+    }
+
+    @Override
     public int getBalance(Long userId) {
         User user = userMapper.selectById(userId);
         ThrowUtils.throwIf(user == null, ErrorCode.NOT_FOUND_ERROR, "用户不存在");

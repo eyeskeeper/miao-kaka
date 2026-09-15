@@ -77,6 +77,17 @@ public class DuelSettlementServiceImpl extends ServiceImpl<DuelMapper, Duel>
         return true;
     }
 
+    @Override
+    public void dailyRefund(Duel duel, DuelMember member) {
+        int daily = member.getDeposit() / duel.getTotalDays();
+        if (daily <= 0) {
+            return;
+        }
+        walletService.dailyRefund(member.getUserId(), daily, duel.getId());
+        member.setRefunded((member.getRefunded() == null ? 0 : member.getRefunded()) + daily);
+        duelMemberMapper.updateById(member);
+    }
+
     private Boolean doSettle(Long duelId, LocalDate today) {
         // 幂等闸门：条件更新抢占结算权，并发下只有一个事务能成功
         boolean claimed = update(new com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper<Duel>()
@@ -94,30 +105,40 @@ public class DuelSettlementServiceImpl extends ServiceImpl<DuelMapper, Duel>
         // 宽容条款：结束时任然待审核的记录自动视为通过
         autoApprovePending(duelId);
 
-        // 确认天数重算 + 结算分配
+        // 结算范围：剩余在册成员（已退出/已移除的已即时结清，不再参与）
         List<DuelMember> members = duelMemberMapper.selectList(new LambdaQueryWrapper<DuelMember>()
                 .eq(DuelMember::getDuelId, duelId)
-                .ne(DuelMember::getStatus, DuelConstant.MEMBER_STATUS_QUIT));
-        List<SettlementCalculator.MemberStake> stakes = members.stream().map(m -> {
-            int days = countConfirmedDays(m, duel);
-            m.setCheckinDays(days);
-            duelMemberMapper.updateById(m);
-            return new SettlementCalculator.MemberStake(m.getUserId(), m.getDeposit(), days);
-        }).toList();
+                .notIn(DuelMember::getStatus, DuelConstant.MEMBER_STATUS_QUIT,
+                        DuelConstant.MEMBER_STATUS_REMOVED));
 
-        SettlementCalculator.SettlementResult result =
-                SettlementCalculator.settle(duel.getTotalDays(), stakes);
+        // 新口径：end_refund = floor(押金×D/T) − 已退（补齐舍入尾差）；
+        // 罚没 = 押金 − 已退 − end_refund；奖池 = Σ罚没 + 被移除成员罚没池
+        int confiscatedSum = 0;
+        List<SettlementCalculator.MemberStake> stakes = new java.util.ArrayList<>(members.size());
         for (DuelMember member : members) {
-            int refund = result.refunds().getOrDefault(member.getUserId(), 0);
-            walletService.refund(member.getUserId(), refund, duelId,
-                    "死斗结算：按 " + member.getCheckinDays() + "/" + duel.getTotalDays() + " 天返还");
+            int days = countConfirmedDays(member, duel);
+            int refunded = member.getRefunded() == null ? 0 : member.getRefunded();
+            member.setCheckinDays(days);
+            duelMemberMapper.updateById(member);
+            int endRefund = Math.max(0,
+                    member.getDeposit() * days / duel.getTotalDays() - refunded);
+            int confiscated = Math.max(0,
+                    member.getDeposit() - refunded - endRefund);
+            confiscatedSum += confiscated;
+            walletService.refund(member.getUserId(), endRefund, duelId,
+                    "死斗结算：按 " + days + "/" + duel.getTotalDays() + " 天补齐退还");
+            stakes.add(new SettlementCalculator.MemberStake(member.getUserId(), member.getDeposit(), days));
         }
-        for (DuelMember member : members) {
-            int share = result.poolShares().getOrDefault(member.getUserId(), 0);
-            walletService.awardPoolShare(member.getUserId(), share, duelId);
+
+        int totalPool = confiscatedSum + (duel.getRemovedPool() == null ? 0 : duel.getRemovedPool());
+        SettlementCalculator.SplitResult split =
+                SettlementCalculator.splitByDays(totalPool, stakes);
+        for (SettlementCalculator.MemberStake stake : stakes) {
+            int share = split.shares().getOrDefault(stake.userId(), 0);
+            walletService.awardPoolShare(stake.userId(), share, duelId);
         }
-        if (result.sunk() > 0) {
-            log.info("死斗 {} 结算完成，沉没 {} 喵币（无人可分）", duelId, result.sunk());
+        if (split.remainder() > 0) {
+            log.info("死斗 {} 结算完成，沉没 {} 喵币（无人可分）", duelId, split.remainder());
         }
         memberSettled(members);
         return true;

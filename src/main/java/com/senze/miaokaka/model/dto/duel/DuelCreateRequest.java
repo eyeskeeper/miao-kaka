@@ -47,5 +47,12 @@ public class DuelCreateRequest implements Serializable {
     @Pattern(regexp = "^\\d{4}-\\d{2}-\\d{2}$", message = "开始日期格式应为 yyyy-MM-dd")
     private String startDate;
 
+    /**
+     * 加入模式 (0:自由加入, 1:审批加入)
+     */
+    @Min(value = 0, message = "加入模式不合法")
+    @Max(value = 1, message = "加入模式不合法")
+    private Integer joinMode = 0;
+
     private static final long serialVersionUID = 1L;
 }

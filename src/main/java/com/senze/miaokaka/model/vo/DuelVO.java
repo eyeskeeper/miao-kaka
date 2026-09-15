@@ -22,6 +22,11 @@ public class DuelVO implements Serializable {
 
     private Long leaderId;
 
+    /**
+     * 加入模式 (0:自由加入, 1:审批加入)
+     */
+    private Integer joinMode;
+
     private Integer depositPerMember;
 
     private Integer totalDays;

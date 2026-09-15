@@ -57,4 +57,25 @@ public interface UserService extends IService<User> {
      * （Top 50 内取榜单名次；50 外按同口径实时补算；零连击为 null）
      */
     RankBoardVO streakBoard(Long userId);
+
+    /**
+     * 管理员建号（赠喵币，与注册一致）
+     */
+    long createUser(com.senze.miaokaka.model.dto.admin.AdminUserCreateRequest request);
+
+    /**
+     * 管理员查用户详情
+     */
+    UserVO getUserDetail(Long userId);
+
+    /**
+     * 管理员改资料/角色/重置密码（仅更新传入字段；角色仅 user↔admin）
+     */
+    UserVO updateUserDetail(Long operatorId, Long userId,
+                            com.senze.miaokaka.model.dto.admin.AdminUserUpdateRequest request);
+
+    /**
+     * 管理员删除用户（逻辑删除 + 账号归档改名；名下有招募中/进行中死斗押金时拒绝）
+     */
+    void deleteUser(Long operatorId, Long userId);
 }

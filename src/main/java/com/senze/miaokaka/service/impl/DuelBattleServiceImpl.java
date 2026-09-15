@@ -22,6 +22,7 @@ import com.senze.miaokaka.model.vo.ReviewItemVO;
 import com.senze.miaokaka.service.CheckInRecordService;
 import com.senze.miaokaka.service.CacheService;
 import com.senze.miaokaka.service.DuelBattleService;
+import com.senze.miaokaka.service.DuelSettlementService;
 import com.senze.miaokaka.service.EvidenceAiPreCheckService;
 import com.senze.miaokaka.service.StorageService;
 import com.senze.miaokaka.service.StoredImage;
@@ -70,6 +71,8 @@ public class DuelBattleServiceImpl extends ServiceImpl<DuelMemberMapper, DuelMem
     private final CacheService cacheService;
 
     private final EvidenceAiPreCheckService evidenceAiPreCheckService;
+
+    private final DuelSettlementService duelSettlementService;
 
     // region 打卡
 
@@ -212,8 +215,14 @@ public class DuelBattleServiceImpl extends ServiceImpl<DuelMemberMapper, DuelMem
                 evidence.setReviewStatus(DuelConstant.REVIEW_STATUS_APPROVED);
                 checkInEvidenceMapper.updateById(evidence);
                 // 记录状态流转（待审核→正常）由结算方法内部完成并校验
-                return checkInRecordService.settleApprovedCheckIn(
+                CheckInResultVO settled = checkInRecordService.settleApprovedCheckIn(
                         record.getUserId(), record.getPlanId(), record.getRecordId());
+                // 每日即退：审核通过当天退当日份额 押金/T
+                DuelMember member = getMember(duelId, record.getUserId());
+                if (member != null) {
+                    duelSettlementService.dailyRefund(duel, member);
+                }
+                return settled;
             }
             evidence.setReviewStatus(DuelConstant.REVIEW_STATUS_REJECTED);
             checkInEvidenceMapper.updateById(evidence);

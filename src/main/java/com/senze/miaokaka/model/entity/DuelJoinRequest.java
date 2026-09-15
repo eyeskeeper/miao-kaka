@@ -10,17 +10,17 @@ import java.io.Serializable;
 import java.util.Date;
 
 /**
- * 死斗成员
+ * 死斗加入申请（审批加入模式）
  *
- * @TableName duel_member
+ * @TableName duel_join_request
  * @author <a href="https://github.com/eyeskeeper">冉森</a>
  */
-@TableName(value = "duel_member")
+@TableName(value = "duel_join_request")
 @Data
-public class DuelMember implements Serializable {
+public class DuelJoinRequest implements Serializable {
 
     /**
-     * 成员id
+     * 申请id
      */
     @TableId(type = IdType.AUTO)
     private Long id;
@@ -31,39 +31,29 @@ public class DuelMember implements Serializable {
     private Long duelId;
 
     /**
-     * 用户id
+     * 申请人id
      */
     private Long userId;
 
     /**
-     * 影子计划id（复用打卡引擎）
-     */
-    private Long planId;
-
-    /**
-     * 本人押金（喵币快照）
-     */
-    private Integer deposit;
-
-    /**
-     * 累计已退金额（每日退还+移除退款）
-     */
-    private Integer refunded;
-
-    /**
-     * 已确认打卡天数（结算时重算）
-     */
-    private Integer checkinDays;
-
-    /**
-     * 状态 (0:已加入, 1:进行中, 2:已结算, 3:已退出)
+     * 状态 (0:待审核, 1:已通过, 2:已拒绝)
      */
     private Integer status;
 
     /**
-     * 加入时间
+     * 审核备注
      */
-    private Date joinTime;
+    private String reviewRemark;
+
+    /**
+     * 审核时间
+     */
+    private Date reviewTime;
+
+    /**
+     * 申请时间
+     */
+    private Date createTime;
 
     @TableField(exist = false)
     private static final long serialVersionUID = 1L;

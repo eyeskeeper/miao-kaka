@@ -32,6 +32,11 @@ public interface WalletService extends IService<CoinTransaction> {
     void awardPoolShare(Long userId, int amount, Long duelId);
 
     /**
+     * 死斗每日打卡退还（审核通过当天退当日份额 押金/T）
+     */
+    void dailyRefund(Long userId, int amount, Long duelId);
+
+    /**
      * 当前余额
      */
     int getBalance(Long userId);

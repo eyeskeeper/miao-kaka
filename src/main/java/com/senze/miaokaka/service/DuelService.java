@@ -2,13 +2,15 @@ package com.senze.miaokaka.service;
 
 import com.baomidou.mybatisplus.spring.service.IService;
 import com.senze.miaokaka.model.dto.duel.DuelCreateRequest;
+import com.senze.miaokaka.model.dto.duel.JoinApplicationReviewRequest;
 import com.senze.miaokaka.model.entity.Duel;
 import com.senze.miaokaka.model.vo.DuelVO;
+import com.senze.miaokaka.model.vo.JoinRequestVO;
 
 import java.util.List;
 
 /**
- * 习惯死斗生命周期服务（创建/加入/退出/详情/开赛）
+ * 习惯死斗生命周期服务（创建/加入/申请审批/退出/移除/让渡/详情/开赛）
  *
  * @author <a href="https://github.com/eyeskeeper">冉森</a>
  */
@@ -18,6 +20,33 @@ public interface DuelService extends IService<Duel> {
 
     DuelVO join(Long userId, Long duelId);
 
+    /**
+     * 申请加入（审批模式死斗；不扣押金，组长批准时才扣）
+     */
+    DuelVO apply(Long userId, Long duelId);
+
+    /**
+     * 待审加入申请列表（仅组长，审批模式）
+     */
+    List<JoinRequestVO> applications(Long userId, Long duelId);
+
+    /**
+     * 审批加入申请：通过时扣押金入组（余额不足自动拒绝并留痕）
+     *
+     * @return 审批结果说明
+     */
+    String reviewApplication(Long userId, Long duelId, JoinApplicationReviewRequest request);
+
+    /**
+     * 组长移除成员：招募中=全额退款；进行中=即时结算（退剩余天数份额，缺勤份额入罚没池）
+     */
+    DuelVO removeMember(Long userId, Long duelId, Long targetUserId);
+
+    /**
+     * 让渡组长：目标须为正式成员；即时生效，原组长降为普通成员
+     */
+    DuelVO transfer(Long userId, Long duelId, Long targetUserId);
+
     DuelVO quit(Long userId, Long duelId);
 
     DuelVO detail(Long userId, Long duelId);
@@ -25,7 +54,7 @@ public interface DuelService extends IService<Duel> {
     List<DuelVO> listMine(Long userId);
 
     /**
-     * 开赛扫描：到达开始日的招募中死斗自动开始（不足 2 人则解散并全额退款）
+     * 开赛扫描：到达开始日的招募中死斗自动开始（不足 2 人则解散并全额退款；待审申请自动拒绝）
      */
     void startDueDuels();
 

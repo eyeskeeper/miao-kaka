@@ -162,6 +162,7 @@ create table `duel`
     duel_name           varchar(128) not null comment '死斗名称',
     duel_desc           varchar(512)          default null comment '死斗描述',
     leader_id           bigint       not null comment '组长id（创建者）',
+    join_mode           tinyint               default 0 not null comment '加入模式 (0:自由加入, 1:审批加入)',
     deposit_per_member  int          not null comment '每人押金（喵币，100~5000）',
     total_days          int          not null comment '挑战天数（3~365）',
     start_date          date         not null comment '开始日期（北京时间）',
@@ -169,6 +170,7 @@ create table `duel`
     status              tinyint               default 0 not null comment '状态 (0:招募中, 1:进行中, 2:已结算, 3:已解散)',
     member_count        int                   default 1 not null comment '当前人数（冗余）',
     total_pool          int                   default 0 not null comment '当前奖池总额（人数×押金，冗余）',
+    removed_pool        int                   default 0 not null comment '被移除成员罚没池（结算时按剩余成员天数占比分配）',
     settled             tinyint               default 0 not null comment '结算是否完成（幂等标记）',
     create_time         datetime     default current_timestamp not null comment '创建时间',
     update_time         datetime     default current_timestamp not null on update current_timestamp comment '更新时间',
@@ -186,8 +188,9 @@ create table `duel_member`
     user_id       bigint                             not null comment '用户id',
     plan_id       bigint                             not null comment '影子计划id（复用打卡引擎）',
     deposit       int                                not null comment '本人押金（喵币快照）',
+    refunded      int                                default 0 not null comment '累计已退金额（每日退还+移除退款）',
     checkin_days  int                                default 0 not null comment '已确认打卡天数（结算时重算）',
-    status        tinyint                            default 0 not null comment '状态 (0:已加入, 1:进行中, 2:已结算, 3:已退出)',
+    status        tinyint                            default 0 not null comment '状态 (0:已加入, 1:进行中, 2:已结算, 3:已退出, 4:已移除)',
     join_time     datetime default current_timestamp not null comment '加入时间',
     unique key uk_duel_user (duel_id, user_id),
     index idx_user (user_id),
@@ -214,3 +217,17 @@ create table `check_in_evidence`
     unique key uk_record (record_id),
     index idx_duel_status (duel_id, review_status)
 ) comment='打卡凭证与审核表' collate = utf8mb4_unicode_ci;
+
+-- 11. 死斗加入申请表（审批加入模式）
+create table `duel_join_request`
+(
+    id           bigint auto_increment comment '申请id' primary key,
+    duel_id      bigint                             not null comment '死斗id',
+    user_id      bigint                             not null comment '申请人id',
+    status       tinyint                            default 0 not null comment '状态 (0:待审核, 1:已通过, 2:已拒绝)',
+    review_remark varchar(255)                      default null comment '审核备注（拒绝原因/喵币不足自动拒绝）',
+    review_time  datetime                           default null comment '审核时间',
+    create_time  datetime default current_timestamp not null comment '申请时间',
+    index idx_duel_status (duel_id, status),
+    index idx_user (user_id)
+) comment='死斗加入申请表' collate = utf8mb4_unicode_ci;

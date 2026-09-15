@@ -29,6 +29,36 @@ public final class SettlementCalculator {
     }
 
     /**
+     * 按天数占比拆分一笔金额（移除罚没池/奖池共用）：floor 分配，余数返回给调用方沉没
+     */
+    public static SplitResult splitByDays(int amount, List<MemberStake> members) {
+        Map<Long, Integer> shares = new HashMap<>();
+        long totalDays = members == null ? 0
+                : members.stream().mapToLong(m -> Math.max(m.days(), 0)).sum();
+        int allocated = 0;
+        if (amount > 0 && totalDays > 0) {
+            for (MemberStake m : members) {
+                int days = Math.max(m.days(), 0);
+                if (days == 0) {
+                    continue;
+                }
+                int share = amount * days / (int) totalDays;
+                if (share > 0) {
+                    shares.merge(m.userId(), share, Integer::sum);
+                    allocated += share;
+                }
+            }
+        }
+        return new SplitResult(shares, amount - allocated);
+    }
+
+    /**
+     * 拆分结果：分得明细 + 未能分配（沉没）的余数
+     */
+    public record SplitResult(Map<Long, Integer> shares, int remainder) {
+    }
+
+    /**
      * @param totalDays 挑战总天数 T（>0）
      * @param members   成员押金与确认天数（days 允许 > T 的防御性钳制在此处理）
      */

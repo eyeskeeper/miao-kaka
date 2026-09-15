@@ -3,10 +3,12 @@ package com.senze.miaokaka.controller;
 import com.senze.miaokaka.common.BaseResponse;
 import com.senze.miaokaka.common.ResultUtils;
 import com.senze.miaokaka.model.dto.duel.DuelCreateRequest;
+import com.senze.miaokaka.model.dto.duel.JoinApplicationReviewRequest;
 import com.senze.miaokaka.model.dto.duel.ReviewRequest;
 import com.senze.miaokaka.model.entity.User;
 import com.senze.miaokaka.model.vo.CheckInResultVO;
 import com.senze.miaokaka.model.vo.DuelVO;
+import com.senze.miaokaka.model.vo.JoinRequestVO;
 import com.senze.miaokaka.model.vo.NudgeSentVO;
 import com.senze.miaokaka.model.vo.ReviewItemVO;
 import com.senze.miaokaka.service.DuelBattleService;
@@ -75,10 +77,52 @@ public class DuelController {
     }
 
     @PostMapping("/{duelId}/join")
-    @Operation(summary = "加入死斗", description = "仅招募中；扣押金；自动创建影子计划（含猫）")
+    @Operation(summary = "加入死斗", description = "仅招募中的自由加入死斗；扣押金；自动创建影子计划（含猫）")
     public BaseResponse<DuelVO> join(@PathVariable Long duelId, HttpServletRequest servletRequest) {
         User user = userService.getLoginUser(servletRequest);
         return ResultUtils.success(duelService.join(user.getId(), duelId));
+    }
+
+    @PostMapping("/{duelId}/apply")
+    @Operation(summary = "申请加入", description = "仅审批加入模式；不扣押金，组长批准时才扣")
+    public BaseResponse<DuelVO> apply(@PathVariable Long duelId, HttpServletRequest servletRequest) {
+        User user = userService.getLoginUser(servletRequest);
+        return ResultUtils.success(duelService.apply(user.getId(), duelId));
+    }
+
+    @GetMapping("/{duelId}/applications")
+    @Operation(summary = "待审加入申请列表", description = "仅组长（审批模式）")
+    public BaseResponse<java.util.List<JoinRequestVO>> applications(@PathVariable Long duelId,
+                                                                    HttpServletRequest servletRequest) {
+        User user = userService.getLoginUser(servletRequest);
+        return ResultUtils.success(duelService.applications(user.getId(), duelId));
+    }
+
+    @PostMapping("/{duelId}/applications/review")
+    @Operation(summary = "审批加入申请", description = "仅组长；通过时扣押金入组，申请人喵币不足则自动拒绝并留痕")
+    public BaseResponse<String> reviewApplication(@PathVariable Long duelId,
+                                                  @Valid @RequestBody JoinApplicationReviewRequest request,
+                                                  HttpServletRequest servletRequest) {
+        User user = userService.getLoginUser(servletRequest);
+        return ResultUtils.success(duelService.reviewApplication(user.getId(), duelId, request));
+    }
+
+    @PostMapping("/{duelId}/members/{targetUserId}/remove")
+    @Operation(summary = "移除成员", description = "仅组长；招募中=全额退款；进行中=即时结算（退剩余天数份额 押金×剩余天数/T，缺勤份额入罚没池）")
+    public BaseResponse<DuelVO> removeMember(@PathVariable Long duelId,
+                                             @PathVariable Long targetUserId,
+                                             HttpServletRequest servletRequest) {
+        User user = userService.getLoginUser(servletRequest);
+        return ResultUtils.success(duelService.removeMember(user.getId(), duelId, targetUserId));
+    }
+
+    @PostMapping("/{duelId}/transfer/{targetUserId}")
+    @Operation(summary = "让渡组长", description = "仅组长；目标须为正式成员；即时生效，原组长降为普通成员")
+    public BaseResponse<DuelVO> transfer(@PathVariable Long duelId,
+                                         @PathVariable Long targetUserId,
+                                         HttpServletRequest servletRequest) {
+        User user = userService.getLoginUser(servletRequest);
+        return ResultUtils.success(duelService.transfer(user.getId(), duelId, targetUserId));
     }
 
     @PostMapping("/{duelId}/quit")

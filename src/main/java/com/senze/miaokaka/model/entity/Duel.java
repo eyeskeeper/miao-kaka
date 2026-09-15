@@ -43,6 +43,11 @@ public class Duel implements Serializable {
     private Long leaderId;
 
     /**
+     * 加入模式 (0:自由加入, 1:审批加入)
+     */
+    private Integer joinMode;
+
+    /**
      * 每人押金（喵币）
      */
     private Integer depositPerMember;
@@ -76,6 +81,11 @@ public class Duel implements Serializable {
      * 当前奖池总额（人数×押金，冗余）
      */
     private Integer totalPool;
+
+    /**
+     * 被移除成员罚没池（结算时按剩余成员天数占比分配）
+     */
+    private Integer removedPool;
 
     /**
      * 结算是否完成（幂等标记）

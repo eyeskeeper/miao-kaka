@@ -78,4 +78,32 @@ class SettlementCalculatorTest {
         assertEquals(100, r.refunds().get(1L));
         assertEquals(0, r.sunk());
     }
+
+    @Test
+    void 按天数拆分_整除() {
+        SettlementCalculator.SplitResult r = SettlementCalculator.splitByDays(100, List.of(
+                new MemberStake(1L, 100, 7),
+                new MemberStake(2L, 100, 3)));
+        assertEquals(70, r.shares().get(1L));
+        assertEquals(30, r.shares().get(2L));
+        assertEquals(0, r.remainder());
+    }
+
+    @Test
+    void 按天数拆分_余数返回调用方() {
+        SettlementCalculator.SplitResult r = SettlementCalculator.splitByDays(101, List.of(
+                new MemberStake(1L, 100, 7),
+                new MemberStake(2L, 100, 3)));
+        assertEquals(70, r.shares().get(1L));
+        assertEquals(30, r.shares().get(2L));
+        assertEquals(1, r.remainder());
+    }
+
+    @Test
+    void 按天数拆分_全零天数全沉没() {
+        SettlementCalculator.SplitResult r = SettlementCalculator.splitByDays(50, List.of(
+                new MemberStake(1L, 100, 0)));
+        org.junit.jupiter.api.Assertions.assertTrue(r.shares().isEmpty());
+        assertEquals(50, r.remainder());
+    }
 }

@@ -13,6 +13,9 @@ import com.senze.miaokaka.config.JwtProperties;
 import com.senze.miaokaka.exception.BusinessException;
 import com.senze.miaokaka.exception.ThrowUtils;
 import com.senze.miaokaka.mapper.UserMapper;
+import com.senze.miaokaka.mapper.DuelMemberMapper;
+import com.senze.miaokaka.model.dto.admin.AdminUserCreateRequest;
+import com.senze.miaokaka.model.dto.admin.AdminUserUpdateRequest;
 import com.senze.miaokaka.model.dto.admin.UserBanRequest;
 import com.senze.miaokaka.model.dto.admin.UserPageQueryRequest;
 import com.senze.miaokaka.model.dto.user.UserLoginRequest;
@@ -51,6 +54,8 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
     private final WalletService walletService;
 
     private final CacheService cacheService;
+
+    private final DuelMemberMapper duelMemberMapper;
 
     @Override
     public long register(UserRegisterRequest request) {
@@ -146,6 +151,84 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
         board.setMyRank(myStreakRank(userId, items));
         return board;
     }
+
+    // region 管理端用户 CRUD
+
+    @Override
+    public long createUser(com.senze.miaokaka.model.dto.admin.AdminUserCreateRequest request) {
+        String account = request.getUserAccount().trim();
+        long exists = count(new LambdaQueryWrapper<User>().eq(User::getUserAccount, account));
+        ThrowUtils.throwIf(exists > 0, ErrorCode.PARAMS_ERROR, "该账号已被注册");
+        User user = new User();
+        user.setUserAccount(account);
+        user.setUserPassword(PASSWORD_ENCODER.encode(request.getInitialPassword()));
+        user.setUserName(StrUtil.blankToDefault(request.getUserName(), "喵友" + RandomUtil.randomNumbers(6)));
+        user.setUserRole(UserConstant.DEFAULT_ROLE);
+        user.setCurrentStreak(0);
+        user.setTotalPoints(0);
+        user.setMiaoCoins(0);
+        boolean saved = save(user);
+        ThrowUtils.throwIf(!saved, ErrorCode.SYSTEM_ERROR, "建号失败，请重试");
+        walletService.grantRegisterGift(user.getId());
+        return user.getId();
+    }
+
+    @Override
+    public UserVO getUserDetail(Long userId) {
+        User user = getById(userId);
+        ThrowUtils.throwIf(user == null, ErrorCode.NOT_FOUND_ERROR, "用户不存在");
+        return toUserVO(user);
+    }
+
+    @Override
+    public UserVO updateUserDetail(Long operatorId, Long userId,
+                                   com.senze.miaokaka.model.dto.admin.AdminUserUpdateRequest request) {
+        User user = getById(userId);
+        ThrowUtils.throwIf(user == null, ErrorCode.NOT_FOUND_ERROR, "用户不存在");
+        if (StrUtil.isNotBlank(request.getUserName())) {
+            user.setUserName(request.getUserName().trim());
+        }
+        if (request.getUserAvatar() != null) {
+            user.setUserAvatar(StrUtil.blankToDefault(request.getUserAvatar(), null));
+        }
+        if (StrUtil.isNotBlank(request.getUserRole())) {
+            ThrowUtils.throwIf(UserConstant.BAN_ROLE.equals(user.getUserRole()),
+                    ErrorCode.OPERATION_ERROR, "封禁用户请先解封再调整角色");
+            user.setUserRole(request.getUserRole());
+        }
+        if (StrUtil.isNotBlank(request.getNewPassword())) {
+            user.setUserPassword(PASSWORD_ENCODER.encode(request.getNewPassword()));
+        }
+        boolean updated = updateById(user);
+        ThrowUtils.throwIf(!updated, ErrorCode.OPERATION_ERROR, "更新失败");
+        // 用户行已变，逐出登录态缓存（角色调整需要立即生效）
+        cacheService.evict(CacheService.keyUser(userId));
+        return toUserVO(user);
+    }
+
+    @Override
+    public void deleteUser(Long operatorId, Long userId) {
+        ThrowUtils.throwIf(operatorId.equals(userId), ErrorCode.OPERATION_ERROR, "不能删除自己的账号");
+        User target = getById(userId);
+        ThrowUtils.throwIf(target == null, ErrorCode.NOT_FOUND_ERROR, "用户不存在");
+        ThrowUtils.throwIf(UserConstant.ADMIN_ROLE.equals(target.getUserRole()),
+                ErrorCode.OPERATION_ERROR, "管理员账号不可删除，请先降级为普通用户");
+        // 押金护栏：名下存在招募中/进行中死斗成员身份（含托管押金）时禁止删除
+        long activeMemberships = duelMemberMapper.selectCount(
+                new LambdaQueryWrapper<com.senze.miaokaka.model.entity.DuelMember>()
+                        .eq(com.senze.miaokaka.model.entity.DuelMember::getUserId, userId)
+                        .in(com.senze.miaokaka.model.entity.DuelMember::getStatus,
+                                com.senze.miaokaka.constant.DuelConstant.MEMBER_STATUS_JOINED,
+                                com.senze.miaokaka.constant.DuelConstant.MEMBER_STATUS_RUNNING));
+        ThrowUtils.throwIf(activeMemberships > 0,
+                ErrorCode.OPERATION_ERROR, "该用户名下有招募中/进行中的死斗押金，请先处理后再删除");        // 账号归档改名，释放原账号名供重新注册
+        target.setUserAccount(target.getUserAccount() + "#del" + target.getId());
+        updateById(target);
+        removeById(userId);
+        cacheService.evict(CacheService.keyUser(userId), CacheService.KEY_RANK_STREAK);
+    }
+
+    // endregion
 
     /**
      * 当前用户排名：Top 50 内直接取榜单名次；50 外按与榜单完全相同的口径
