@@ -70,6 +70,21 @@ public class LocalStorageService implements StorageService {
     }
 
     @Override
+    public String storeImage(byte[] bytes, String ext) {
+        try {
+            String relative = LocalDate.now().format(DateTimeFormatter.ofPattern("yyyy/MM/dd"))
+                    + "/" + UUID.randomUUID().toString().replace("-", "") + "." + ext;
+            Path target = Paths.get(uploadDir, relative);
+            Files.createDirectories(target.getParent());
+            Files.write(target, bytes);
+            return "/uploads/" + relative;
+        } catch (IOException e) {
+            log.error("保存生成图片失败", e);
+            throw new BusinessException(ErrorCode.SYSTEM_ERROR, "图片保存失败，请重试");
+        }
+    }
+
+    @Override
     public byte[] readAllBytes(String url) {
         try {
             String relative = StrUtil.removePrefix(url, "/uploads/");

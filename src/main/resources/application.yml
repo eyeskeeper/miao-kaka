@@ -38,6 +38,9 @@ app:
       bucket:
   # 上传图片存储目录（local 模式）
   upload-dir: ./data/uploads
+  # 邀请二维码编码的公网基础地址（生产用环境变量/配置覆盖）
+  invite:
+    base-url: http://localhost:18089
   ai:
     vision:
       # 智谱 GLM-4V 凭证预审开关（未配 key 时自动退化为纯组长人工审核）

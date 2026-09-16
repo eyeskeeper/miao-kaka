@@ -16,6 +16,11 @@ public interface StorageService {
     StoredImage storeImage(MultipartFile file);
 
     /**
+     * 直接存储服务端生成的图片字节（如邀请海报）：无预览图概念，返回可公开访问的 URL
+     */
+    String storeImage(byte[] bytes, String ext);
+
+    /**
      * 读取已存储图片的字节（AI 预审用）
      */
     byte[] readAllBytes(String url);

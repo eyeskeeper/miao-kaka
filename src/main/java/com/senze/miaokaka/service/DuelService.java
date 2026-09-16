@@ -21,9 +21,19 @@ public interface DuelService extends IService<Duel> {
     DuelVO join(Long userId, Long duelId);
 
     /**
+     * 直接入组（邀请免审路径）：跳过审批模式校验（组长邀请码用），其余护栏（招募中/成员查重/扣押金）与 join 一致
+     */
+    DuelVO joinDirect(Long userId, Long duelId);
+
+    /**
      * 申请加入（审批模式死斗；不扣押金，组长批准时才扣）
      */
     DuelVO apply(Long userId, Long duelId);
+
+    /**
+     * 申请加入（邀请码路径）：落库时留痕邀请人
+     */
+    DuelVO apply(Long userId, Long duelId, Long inviterId);
 
     /**
      * 待审加入申请列表（仅组长，审批模式）

@@ -125,6 +125,14 @@ public class DuelServiceImpl extends ServiceImpl<DuelMapper, Duel> implements Du
                 ErrorCode.OPERATION_ERROR, "该死斗已开始或结束，无法加入");
         ThrowUtils.throwIf(duel.getJoinMode() != null && duel.getJoinMode() == DuelConstant.JOIN_MODE_APPROVAL,
                 ErrorCode.OPERATION_ERROR, "该死斗为审批加入制，请先提交加入申请");
+        return joinDirect(userId, duelId);
+    }
+
+    @Override
+    public DuelVO joinDirect(Long userId, Long duelId) {
+        Duel duel = getRequiredDuel(duelId);
+        ThrowUtils.throwIf(duel.getStatus() != DuelConstant.DUEL_STATUS_RECRUITING,
+                ErrorCode.OPERATION_ERROR, "该死斗已开始或结束，无法加入");
         long joined = duelMemberMapper.selectCount(new LambdaQueryWrapper<DuelMember>()
                 .eq(DuelMember::getDuelId, duelId)
                 .eq(DuelMember::getUserId, userId)
@@ -139,6 +147,11 @@ public class DuelServiceImpl extends ServiceImpl<DuelMapper, Duel> implements Du
 
     @Override
     public DuelVO apply(Long userId, Long duelId) {
+        return apply(userId, duelId, null);
+    }
+
+    @Override
+    public DuelVO apply(Long userId, Long duelId, Long inviterId) {
         Duel duel = getRequiredDuel(duelId);
         ThrowUtils.throwIf(duel.getStatus() != DuelConstant.DUEL_STATUS_RECRUITING,
                 ErrorCode.OPERATION_ERROR, "该死斗已开始或结束，无法申请");
@@ -157,6 +170,7 @@ public class DuelServiceImpl extends ServiceImpl<DuelMapper, Duel> implements Du
         DuelJoinRequest request = new DuelJoinRequest();
         request.setDuelId(duelId);
         request.setUserId(userId);
+        request.setInviterId(inviterId);
         request.setStatus(DuelConstant.JOIN_REQUEST_PENDING);
         duelJoinRequestMapper.insert(request);
         return detail(userId, duelId);
@@ -459,22 +473,34 @@ public class DuelServiceImpl extends ServiceImpl<DuelMapper, Duel> implements Du
     }
 
     /**
-     * 成员落库（影子计划 + 成员记录 + 冗余计数 + 逐出聚合缓存）；扣押金由调用方负责
+     * 成员落库（影子计划 + 成员记录 + 冗余计数 + 逐出聚合缓存）；扣押金由调用方负责。
+     * 退出（QUIT）成员的行仍占 uk_duel_user：重进时复活原行并重置押金快照/已退/天数，而非插入新行。
      */
     private void createMembershipTx(Duel duel, Long userId) {
         ThrowUtils.throwIf(duel.getMemberCount() >= DuelConstant.MEMBER_MAX,
                 ErrorCode.OPERATION_ERROR, "该死斗已满员（" + DuelConstant.MEMBER_MAX + " 人）");
         CheckInPlan shadowPlan = checkInPlanService.createShadowPlan(
                 userId, duel.getDuelName(), duel.getTotalDays(), duel.getId());
-        DuelMember member = new DuelMember();
-        member.setDuelId(duel.getId());
-        member.setUserId(userId);
-        member.setPlanId(shadowPlan.getId());
-        member.setDeposit(duel.getDepositPerMember());
-        member.setRefunded(0);
-        member.setCheckinDays(0);
-        member.setStatus(DuelConstant.MEMBER_STATUS_JOINED);
-        duelMemberMapper.insert(member);
+        DuelMember existing = getMember(duel.getId(), userId);
+        if (existing != null) {
+            existing.setPlanId(shadowPlan.getId());
+            existing.setDeposit(duel.getDepositPerMember());
+            existing.setRefunded(0);
+            existing.setCheckinDays(0);
+            existing.setStatus(DuelConstant.MEMBER_STATUS_JOINED);
+            existing.setJoinTime(new java.util.Date());
+            duelMemberMapper.updateById(existing);
+        } else {
+            DuelMember member = new DuelMember();
+            member.setDuelId(duel.getId());
+            member.setUserId(userId);
+            member.setPlanId(shadowPlan.getId());
+            member.setDeposit(duel.getDepositPerMember());
+            member.setRefunded(0);
+            member.setCheckinDays(0);
+            member.setStatus(DuelConstant.MEMBER_STATUS_JOINED);
+            duelMemberMapper.insert(member);
+        }
         duel.setMemberCount(duel.getMemberCount() + 1);
         duel.setTotalPool(duel.getTotalPool() + duel.getDepositPerMember());
         updateById(duel);

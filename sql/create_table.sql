@@ -224,6 +224,7 @@ create table `duel_join_request`
     id           bigint auto_increment comment '申请id' primary key,
     duel_id      bigint                             not null comment '死斗id',
     user_id      bigint                             not null comment '申请人id',
+    inviter_id   bigint                             default null comment '邀请人id（扫码邀请走申请时留痕）',
     status       tinyint                            default 0 not null comment '状态 (0:待审核, 1:已通过, 2:已拒绝)',
     review_remark varchar(255)                      default null comment '审核备注（拒绝原因/喵币不足自动拒绝）',
     review_time  datetime                           default null comment '审核时间',
@@ -262,3 +263,17 @@ create table `duel_impeachment_vote`
     index idx_duel (duel_id),
     index idx_user (user_id)
 ) comment='死斗弹劾投票表' collate = utf8mb4_unicode_ci;
+
+-- 死斗邀请码表（每个成员每局一个固定码，海报复用）
+create table `duel_invite`
+(
+    id         bigint auto_increment comment '邀请id' primary key,
+    duel_id    bigint                             not null comment '死斗id',
+    inviter_id bigint                             not null comment '邀请人id（成员/组长）',
+    code       varchar(16)                        not null comment '邀请码（8位大写字母数字，剔除易混字符）',
+    poster_url varchar(255)                       default null comment '邀请海报 URL（首次生成后回填复用）',
+    create_time datetime default current_timestamp not null comment '创建时间',
+    unique key uk_code (code),
+    unique key uk_duel_inviter (duel_id, inviter_id),
+    index idx_duel (duel_id)
+) comment='死斗邀请码表' collate = utf8mb4_unicode_ci;

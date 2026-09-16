@@ -77,6 +77,14 @@ public class OssStorageService implements StorageService {
     }
 
     @Override
+    public String storeImage(byte[] bytes, String ext) {
+        String key = LocalDate.now().format(DateTimeFormatter.ofPattern("yyyy/MM/dd"))
+                + "/" + UUID.randomUUID().toString().replace("-", "") + "." + ext;
+        putObject(key, bytes, contentTypeOf(ext));
+        return urlPrefix + "/" + key;
+    }
+
+    @Override
     public byte[] readAllBytes(String url) {
         String key = StrUtil.removePrefix(url, urlPrefix + "/");
         try (var object = ossClient.getObject(properties.getBucket(), key)) {

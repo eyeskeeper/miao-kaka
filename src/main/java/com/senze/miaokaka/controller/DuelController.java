@@ -5,16 +5,21 @@ import com.senze.miaokaka.common.ResultUtils;
 import com.senze.miaokaka.model.dto.duel.DuelCreateRequest;
 import com.senze.miaokaka.model.dto.duel.ImpeachInitiateRequest;
 import com.senze.miaokaka.model.dto.duel.ImpeachmentVoteRequest;
+import com.senze.miaokaka.model.dto.duel.InviteUseRequest;
 import com.senze.miaokaka.model.dto.duel.JoinApplicationReviewRequest;
 import com.senze.miaokaka.model.dto.duel.ReviewRequest;
 import com.senze.miaokaka.model.entity.User;
 import com.senze.miaokaka.model.vo.CheckInResultVO;
 import com.senze.miaokaka.model.vo.DuelVO;
+import com.senze.miaokaka.model.vo.InviteInfoVO;
+import com.senze.miaokaka.model.vo.InviteUseResultVO;
+import com.senze.miaokaka.model.vo.InviteVO;
 import com.senze.miaokaka.model.vo.JoinRequestVO;
 import com.senze.miaokaka.model.vo.NudgeSentVO;
 import com.senze.miaokaka.model.vo.ReviewItemVO;
 import com.senze.miaokaka.service.DuelBattleService;
 import com.senze.miaokaka.service.DuelImpeachmentService;
+import com.senze.miaokaka.service.DuelInviteService;
 import com.senze.miaokaka.service.DuelService;
 import com.senze.miaokaka.service.NudgeService;
 import com.senze.miaokaka.service.UserService;
@@ -57,6 +62,9 @@ public class DuelController {
 
     @Resource
     private DuelImpeachmentService duelImpeachmentService;
+
+    @Resource
+    private DuelInviteService duelInviteService;
 
     @Resource
     private UserService userService;
@@ -165,6 +173,27 @@ public class DuelController {
         User user = userService.getLoginUser(servletRequest);
         duelImpeachmentService.vote(user.getId(), duelId, request);
         return ResultUtils.success(duelService.detail(user.getId(), duelId));
+    }
+
+    @PostMapping("/{duelId}/invite")
+    @Operation(summary = "生成邀请海报", description = "仅招募中的正式成员；每个（成员，死斗）固定一个邀请码，海报只渲染一次复用；二维码编码免登录落地 URL")
+    public BaseResponse<InviteVO> invite(@PathVariable Long duelId, HttpServletRequest servletRequest) {
+        User user = userService.getLoginUser(servletRequest);
+        return ResultUtils.success(duelInviteService.getOrCreateInvite(user.getId(), duelId));
+    }
+
+    @GetMapping("/invite/info/{code}")
+    @Operation(summary = "邀请码落地信息", description = "免登录（扫码落地）；返回死斗摘要、邀请人与加入动作提示（direct=直接加入/apply=需审批）")
+    public BaseResponse<InviteInfoVO> inviteInfo(@PathVariable String code) {
+        return ResultUtils.success(duelInviteService.resolveInfo(code));
+    }
+
+    @PostMapping("/invite/use")
+    @Operation(summary = "使用邀请码", description = "仅招募中；组长码两种模式都直接入组（审批制免审）；成员码：自由制直接加入、审批制提交申请并留痕邀请人")
+    public BaseResponse<InviteUseResultVO> useInvite(@Valid @RequestBody InviteUseRequest request,
+                                                     HttpServletRequest servletRequest) {
+        User user = userService.getLoginUser(servletRequest);
+        return ResultUtils.success(duelInviteService.useInvite(user.getId(), request.getCode()));
     }
 
     @PostMapping("/{duelId}/check_in")

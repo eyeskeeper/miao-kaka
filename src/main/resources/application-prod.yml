@@ -29,6 +29,8 @@ app:
       access-key-secret: ${ALIYUN_OSS_ACCESS_KEY_SECRET:}
       bucket: ${ALIYUN_OSS_BUCKET:}
   upload-dir: ${UPLOAD_DIR:/data/uploads}
+  invite:
+    base-url: ${INVITE_BASE_URL:}
   ai:
     vision:
       enabled: ${VISION_ENABLED:false}

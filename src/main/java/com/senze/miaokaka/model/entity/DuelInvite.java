@@ -10,17 +10,17 @@ import java.io.Serializable;
 import java.util.Date;
 
 /**
- * 死斗加入申请（审批加入模式）
+ * 死斗邀请码（每个成员每局一个固定码，海报复用）
  *
- * @TableName duel_join_request
+ * @TableName duel_invite
  * @author <a href="https://github.com/eyeskeeper">冉森</a>
  */
-@TableName(value = "duel_join_request")
+@TableName(value = "duel_invite")
 @Data
-public class DuelJoinRequest implements Serializable {
+public class DuelInvite implements Serializable {
 
     /**
-     * 申请id
+     * 邀请id
      */
     @TableId(type = IdType.AUTO)
     private Long id;
@@ -31,32 +31,22 @@ public class DuelJoinRequest implements Serializable {
     private Long duelId;
 
     /**
-     * 申请人id
-     */
-    private Long userId;
-
-    /**
-     * 邀请人id（扫码邀请走申请时留痕）
+     * 邀请人id（成员/组长）
      */
     private Long inviterId;
 
     /**
-     * 状态 (0:待审核, 1:已通过, 2:已拒绝)
+     * 邀请码（8位大写字母数字，剔除易混字符）
      */
-    private Integer status;
+    private String code;
 
     /**
-     * 审核备注
+     * 邀请海报 URL（首次生成后回填复用）
      */
-    private String reviewRemark;
+    private String posterUrl;
 
     /**
-     * 审核时间
-     */
-    private Date reviewTime;
-
-    /**
-     * 申请时间
+     * 创建时间
      */
     private Date createTime;
 

@@ -32,6 +32,8 @@ public class WebMvcConfig implements WebMvcConfigurer {
                         "/user/register",
                         "/user/login",
                         "/ai/health",
+                        // 邀请码扫码落地：无需登录即可查看死斗摘要
+                        "/duel/invite/info/*",
                         // 上传的凭证图片需可被（组长浏览器）直接访问
                         "/uploads/**",
                         "/v3/api-docs/**",
@@ -45,7 +47,12 @@ public class WebMvcConfig implements WebMvcConfigurer {
 
     @Override
     public void addResourceHandlers(ResourceHandlerRegistry registry) {
+        // normalize 去掉相对路径的 "." 段：带 /./ 的 file URI 会导致静态资源 404
+        String location = Paths.get(uploadDir).toAbsolutePath().normalize().toUri().toString();
+        if (!location.endsWith("/")) {
+            location += "/";
+        }
         registry.addResourceHandler("/uploads/**")
-                .addResourceLocations(Paths.get(uploadDir).toAbsolutePath().toUri().toString());
+                .addResourceLocations(location);
     }
 }
