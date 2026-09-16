@@ -61,6 +61,27 @@ public interface DuelConstant {
 
     // endregion
 
+    // region 弹劾组长
+
+    int IMPEACH_STATUS_ACTIVE = 0;
+    int IMPEACH_STATUS_SUCCESS = 1;
+    int IMPEACH_STATUS_FAILED = 2;
+
+    int VOTE_MAINTAIN = 0;
+    int VOTE_IMPEACH = 1;
+
+    /**
+     * 弹劾投票期限（小时）
+     */
+    int IMPEACH_DURATION_HOURS = 24;
+
+    /**
+     * 弹劾失败后冷却（小时）
+     */
+    int IMPEACH_COOLDOWN_HOURS = 24;
+
+    // endregion
+
     // region 玩法参数
 
     int DEPOSIT_MIN = 100;

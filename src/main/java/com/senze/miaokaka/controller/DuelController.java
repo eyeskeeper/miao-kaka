@@ -3,6 +3,8 @@ package com.senze.miaokaka.controller;
 import com.senze.miaokaka.common.BaseResponse;
 import com.senze.miaokaka.common.ResultUtils;
 import com.senze.miaokaka.model.dto.duel.DuelCreateRequest;
+import com.senze.miaokaka.model.dto.duel.ImpeachInitiateRequest;
+import com.senze.miaokaka.model.dto.duel.ImpeachmentVoteRequest;
 import com.senze.miaokaka.model.dto.duel.JoinApplicationReviewRequest;
 import com.senze.miaokaka.model.dto.duel.ReviewRequest;
 import com.senze.miaokaka.model.entity.User;
@@ -12,6 +14,7 @@ import com.senze.miaokaka.model.vo.JoinRequestVO;
 import com.senze.miaokaka.model.vo.NudgeSentVO;
 import com.senze.miaokaka.model.vo.ReviewItemVO;
 import com.senze.miaokaka.service.DuelBattleService;
+import com.senze.miaokaka.service.DuelImpeachmentService;
 import com.senze.miaokaka.service.DuelService;
 import com.senze.miaokaka.service.NudgeService;
 import com.senze.miaokaka.service.UserService;
@@ -51,6 +54,9 @@ public class DuelController {
 
     @Resource
     private NudgeService nudgeService;
+
+    @Resource
+    private DuelImpeachmentService duelImpeachmentService;
 
     @Resource
     private UserService userService;
@@ -139,6 +145,26 @@ public class DuelController {
                                            HttpServletRequest servletRequest) {
         User user = userService.getLoginUser(servletRequest);
         return ResultUtils.success(nudgeService.nudge(user.getId(), duelId, targetUserId));
+    }
+
+    @PostMapping("/{duelId}/impeach")
+    @Operation(summary = "发起弹劾组长", description = "仅进行中死斗的正式成员（非组长）；原因≤20字；同一时刻仅一个进行中弹劾；失败后冷却24小时；发起人自动记1张弹劾票")
+    public BaseResponse<DuelVO> impeach(@PathVariable Long duelId,
+                                        @Valid @RequestBody ImpeachInitiateRequest request,
+                                        HttpServletRequest servletRequest) {
+        User user = userService.getLoginUser(servletRequest);
+        duelImpeachmentService.initiate(user.getId(), duelId, request);
+        return ResultUtils.success(duelService.detail(user.getId(), duelId));
+    }
+
+    @PostMapping("/{duelId}/impeachment/vote")
+    @Operation(summary = "弹劾投票", description = "正式成员（含组长，组长只能投维持）对进行中弹劾投 维持(0)/弹劾(1)；一票定死不可改；弹劾票严格过半即成功，发起人立即成为新组长；24小时未过半自动判负")
+    public BaseResponse<DuelVO> voteImpeachment(@PathVariable Long duelId,
+                                                @Valid @RequestBody ImpeachmentVoteRequest request,
+                                                HttpServletRequest servletRequest) {
+        User user = userService.getLoginUser(servletRequest);
+        duelImpeachmentService.vote(user.getId(), duelId, request);
+        return ResultUtils.success(duelService.detail(user.getId(), duelId));
     }
 
     @PostMapping("/{duelId}/check_in")

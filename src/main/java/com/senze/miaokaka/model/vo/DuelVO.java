@@ -4,6 +4,7 @@ import lombok.Data;
 
 import java.io.Serializable;
 import java.time.LocalDate;
+import java.util.Date;
 import java.util.List;
 
 /**
@@ -66,7 +67,51 @@ public class DuelVO implements Serializable {
      */
     private Long pendingCount;
 
+    /**
+     * 进行中的弹劾（无则 null，已结束的不展示）
+     */
+    private ImpeachmentVO impeachment;
+
+    /**
+     * 我对进行中弹劾的投票：null 未投 / 0 维持 / 1 弹劾
+     */
+    private Integer myImpeachVote;
+
     private List<MemberVO> members;
+
+    /**
+     * 进行中的弹劾概要（观看者无关，进聚合缓存）
+     */
+    @Data
+    public static class ImpeachmentVO implements Serializable {
+
+        private Long id;
+
+        private Long initiatorId;
+
+        private String initiatorName;
+
+        /**
+         * 弹劾原因（20字内）
+         */
+        private String reason;
+
+        private Integer impeachCount;
+
+        private Integer maintainCount;
+
+        /**
+         * 投票基数（当前正式成员数，弹劾票严格过半即成功）
+         */
+        private Integer totalCount;
+
+        /**
+         * 投票截止时间
+         */
+        private Date expireTime;
+
+        private static final long serialVersionUID = 1L;
+    }
 
     @Data
     public static class MemberVO implements Serializable {

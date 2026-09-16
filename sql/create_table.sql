@@ -231,3 +231,34 @@ create table `duel_join_request`
     index idx_duel_status (duel_id, status),
     index idx_user (user_id)
 ) comment='死斗加入申请表' collate = utf8mb4_unicode_ci;
+
+-- 死斗弹劾表（组员弹劾组长投票）
+create table `duel_impeachment`
+(
+    id           bigint auto_increment comment '弹劾id' primary key,
+    duel_id      bigint                            not null comment '死斗id',
+    initiator_id bigint                            not null comment '发起人id（成功后成为新组长）',
+    reason       varchar(20)                       not null comment '弹劾原因（20字内）',
+    status       tinyint default 0                 not null comment '状态 (0:进行中, 1:成功, 2:失败)',
+    fail_reason  varchar(64)                       default null comment '失败原因（维持票过半/投票截止未过半/组长已变更/发起人已离局）',
+    impeach_cnt  int     default 0                 not null comment '弹劾票数',
+    maintain_cnt int     default 0                 not null comment '维持票数',
+    expire_time  datetime                          not null comment '投票截止时间（发起+24小时）',
+    finish_time  datetime                          default null comment '结束时间',
+    create_time  datetime default current_timestamp not null comment '发起时间',
+    index idx_duel_status (duel_id, status)
+) comment='死斗弹劾表' collate = utf8mb4_unicode_ci;
+
+-- 死斗弹劾投票表（一人一票，不可改票）
+create table `duel_impeachment_vote`
+(
+    id             bigint auto_increment comment '投票id' primary key,
+    impeachment_id bigint                             not null comment '弹劾id',
+    duel_id        bigint                             not null comment '死斗id',
+    user_id        bigint                             not null comment '投票人id',
+    vote           tinyint                            not null comment '投票 (0:维持, 1:弹劾)',
+    create_time    datetime default current_timestamp not null comment '投票时间',
+    unique key uk_impeach_user (impeachment_id, user_id),
+    index idx_duel (duel_id),
+    index idx_user (user_id)
+) comment='死斗弹劾投票表' collate = utf8mb4_unicode_ci;

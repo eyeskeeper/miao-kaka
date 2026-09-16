@@ -27,6 +27,7 @@ import com.senze.miaokaka.model.vo.DuelVO;
 import com.senze.miaokaka.model.vo.JoinRequestVO;
 import com.senze.miaokaka.service.CacheService;
 import com.senze.miaokaka.service.CheckInPlanService;
+import com.senze.miaokaka.service.DuelImpeachmentService;
 import com.senze.miaokaka.service.DuelService;
 import com.senze.miaokaka.service.DuelSettlementService;
 import com.senze.miaokaka.service.WalletService;
@@ -70,6 +71,8 @@ public class DuelServiceImpl extends ServiceImpl<DuelMapper, Duel> implements Du
     private final WalletService walletService;
 
     private final DuelSettlementService duelSettlementService;
+
+    private final DuelImpeachmentService duelImpeachmentService;
 
     private final TransactionTemplate transactionTemplate;
 
@@ -271,6 +274,10 @@ public class DuelServiceImpl extends ServiceImpl<DuelMapper, Duel> implements Du
         ThrowUtils.throwIf(member == null || member.getStatus() == DuelConstant.MEMBER_STATUS_QUIT
                         || member.getStatus() == DuelConstant.MEMBER_STATUS_REMOVED,
                 ErrorCode.NOT_FOUND_ERROR, "对方不是该死斗的正式成员");
+        // 弹劾进行中：发起人受保护，不能被移除（防组长移人掐死弹劾）
+        Long impeachInitiator = duelImpeachmentService.getActiveInitiator(duelId);
+        ThrowUtils.throwIf(impeachInitiator != null && impeachInitiator.equals(targetUserId),
+                ErrorCode.OPERATION_ERROR, "弹劾进行中，不能移除弹劾发起人");
 
         transactionTemplate.execute(status -> {
             if (duel.getStatus() == DuelConstant.DUEL_STATUS_RECRUITING) {
@@ -316,6 +323,8 @@ public class DuelServiceImpl extends ServiceImpl<DuelMapper, Duel> implements Du
                 ErrorCode.OPERATION_ERROR, "让渡目标必须是该死斗的正式成员");
         duel.setLeaderId(targetUserId);
         updateById(duel);
+        // 组长已变更：进行中的弹劾自动终止（弹劾对象已换人）
+        duelImpeachmentService.terminateOnLeaderChange(duelId);
         cacheService.evict(CacheService.keyDuelAgg(duelId));
         return detail(userId, duelId);
     }
@@ -564,6 +573,11 @@ public class DuelServiceImpl extends ServiceImpl<DuelMapper, Duel> implements Du
             vo.setMyStatus(mine.getStatus());
             vo.setMyPlanId(mine.getPlanId());
         }
+        // 进行中的弹劾概要走聚合缓存，我的投票实时查（个性化字段不缓存）
+        if (agg.getImpeachment() != null) {
+            vo.setImpeachment(agg.getImpeachment());
+            vo.setMyImpeachVote(duelImpeachmentService.myVoteOf(agg.getImpeachment().getId(), userId));
+        }
         return vo;
     }
 
@@ -594,6 +608,8 @@ public class DuelServiceImpl extends ServiceImpl<DuelMapper, Duel> implements Du
             lines.add(line);
         }
         agg.setMembers(lines);
+        // 进行中的弹劾概要（含过期惰性判负）
+        agg.setImpeachment(duelImpeachmentService.assembleActiveVO(duelId, duel.getMemberCount()));
         return agg;
     }
 

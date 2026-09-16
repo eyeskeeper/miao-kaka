@@ -20,6 +20,11 @@ public class DuelAggData implements Serializable {
 
     private List<MemberLine> members;
 
+    /**
+     * 进行中的弹劾概要（无则 null；发起/投票/终止时逐出缓存刷新）
+     */
+    private DuelVO.ImpeachmentVO impeachment;
+
     @Data
     public static class MemberLine implements Serializable {
 
