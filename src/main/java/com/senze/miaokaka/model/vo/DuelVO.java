@@ -63,6 +63,11 @@ public class DuelVO implements Serializable {
     private Long myPlanId;
 
     /**
+     * 我的加入申请状态：null 无申请 / 0 待审 / 1 已通过 / 2 已拒绝（本人最新一条申请，实时查）
+     */
+    private Integer myApplyStatus;
+
+    /**
      * 组长视角：待审核凭证数
      */
     private Long pendingCount;

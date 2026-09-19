@@ -365,6 +365,14 @@ public class DuelServiceImpl extends ServiceImpl<DuelMapper, Duel> implements Du
         duels.addAll(list(new LambdaQueryWrapper<Duel>()
                 .eq(Duel::getLeaderId, userId)
                 .orderByDesc(Duel::getCreateTime)));
+        // 我有待审加入申请的（审批制审核期间申请人也要能看到这场死斗）
+        List<Long> appliedIds = duelJoinRequestMapper.selectList(new LambdaQueryWrapper<DuelJoinRequest>()
+                        .eq(DuelJoinRequest::getUserId, userId)
+                        .eq(DuelJoinRequest::getStatus, DuelConstant.JOIN_REQUEST_PENDING))
+                .stream().map(DuelJoinRequest::getDuelId).toList();
+        if (!appliedIds.isEmpty()) {
+            duels.addAll(listByIds(appliedIds));
+        }
         Map<Long, Duel> unique = new LinkedHashMap<>();
         for (Duel duel : duels) {
             ensureProgressed(duel);
@@ -598,6 +606,15 @@ public class DuelServiceImpl extends ServiceImpl<DuelMapper, Duel> implements Du
         if (mine != null && mine.getStatus() != DuelConstant.MEMBER_STATUS_QUIT) {
             vo.setMyStatus(mine.getStatus());
             vo.setMyPlanId(mine.getPlanId());
+        }
+        // 我的加入申请状态（实时查询，个性化字段）：null 无申请 / 0 待审 / 1 已通过 / 2 已拒绝
+        List<DuelJoinRequest> myRequests = duelJoinRequestMapper.selectList(
+                new LambdaQueryWrapper<DuelJoinRequest>()
+                        .eq(DuelJoinRequest::getDuelId, duel.getId())
+                        .eq(DuelJoinRequest::getUserId, userId)
+                        .orderByDesc(DuelJoinRequest::getId));
+        if (!myRequests.isEmpty()) {
+            vo.setMyApplyStatus(myRequests.get(0).getStatus());
         }
         // 进行中的弹劾概要走聚合缓存，我的投票实时查（个性化字段不缓存）
         if (agg.getImpeachment() != null) {
