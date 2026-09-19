@@ -388,12 +388,16 @@ public class DuelServiceImpl extends ServiceImpl<DuelMapper, Duel> implements Du
 
     @Override
     public com.baomidou.mybatisplus.extension.plugins.pagination.Page<com.senze.miaokaka.model.vo.DuelHallVO> hall(
-            long pageNum, long pageSize, Long viewerId) {
-        Page<Duel> page = page(new Page<>(pageNum, Math.min(pageSize, 50)),
-                new LambdaQueryWrapper<Duel>()
-                        .in(Duel::getStatus, DuelConstant.DUEL_STATUS_RECRUITING, DuelConstant.DUEL_STATUS_RUNNING)
-                        .orderByAsc(Duel::getStatus)
-                        .orderByDesc(Duel::getId));
+            com.senze.miaokaka.model.dto.duel.DuelHallQueryRequest request, Long viewerId) {
+        LambdaQueryWrapper<Duel> wrapper = new LambdaQueryWrapper<Duel>()
+                .in(Duel::getStatus, DuelConstant.DUEL_STATUS_RECRUITING, DuelConstant.DUEL_STATUS_RUNNING)
+                .eq(request.getStatus() != null, Duel::getStatus, request.getStatus())
+                .eq(request.getJoinMode() != null, Duel::getJoinMode, request.getJoinMode())
+                .like(StrUtil.isNotBlank(request.getDuelName()), Duel::getDuelName,
+                        StrUtil.trim(request.getDuelName()))
+                .orderByAsc(Duel::getStatus)
+                .orderByDesc(Duel::getId);
+        Page<Duel> page = page(new Page<>(request.getCurrent(), Math.min(request.getPageSize(), 50)), wrapper);
         List<Duel> duels = page.getRecords();
         List<com.senze.miaokaka.model.vo.DuelHallVO> vos = new ArrayList<>(duels.size());
         if (!duels.isEmpty()) {

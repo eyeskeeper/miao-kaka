@@ -84,13 +84,12 @@ public class DuelController {
     }
 
     @GetMapping("/hall")
-    @Operation(summary = "死斗大厅", description = "全量招募中+进行中的死斗分页（招募中优先、每页内最新在前，pageSize 上限 50）；轻量脱敏不带成员明细；myRelation=leader/member/applicant/null 标识我与该局的关系")
+    @Operation(summary = "死斗大厅", description = "全量招募中+进行中的死斗分页（招募中优先、每页内最新在前，pageSize 上限 50）；支持名称模糊 duelName / 类型 joinMode(0自由,1审批) / 状态 status(0招募,1进行) 可选筛选；轻量脱敏不带成员明细；myRelation=leader/member/applicant/null 标识我与该局的关系")
     public BaseResponse<com.baomidou.mybatisplus.extension.plugins.pagination.Page<com.senze.miaokaka.model.vo.DuelHallVO>> hall(
-            @RequestParam(defaultValue = "1") long pageNum,
-            @RequestParam(defaultValue = "10") long pageSize,
+            @Valid com.senze.miaokaka.model.dto.duel.DuelHallQueryRequest request,
             HttpServletRequest servletRequest) {
         User user = userService.getLoginUser(servletRequest);
-        return ResultUtils.success(duelService.hall(pageNum, pageSize, user.getId()));
+        return ResultUtils.success(duelService.hall(request, user.getId()));
     }
 
     @GetMapping("/{duelId}")
