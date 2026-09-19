@@ -1,8 +1,22 @@
 # 死斗大厅接口设计文档
 
 - 日期：2026-09-16
-- 状态：已实现并冒烟通过
+- 状态：已实现并冒烟通过（2026-09-16 增补名称/类型/状态筛选）
 - 关联：2026-09-11-duel-and-focus-design.md（死斗模式）、2026-09-16-applicant-visibility-fix.md
+
+## 增补：查询筛选（2026-09-16 第二轮）
+
+`GET /duel/hall` 增加三个**可选**筛选参数（`DuelHallQueryRequest extends PageRequest`，缺省行为与初版完全一致）：
+
+| 参数 | 说明 | 校验 |
+| --- | --- | --- |
+| `duelName` | 名称模糊匹配（LIKE，自动 trim） | ≤30 字 |
+| `joinMode` | 类型：0 自由加入 / 1 审批加入；空=不限 | @Min(0) @Max(1) → 40000「类型不合法」 |
+| `status` | 状态：0 招募中 / 1 进行中；空=不限 | @Min(0) @Max(1) → 40000 |
+
+实现：条件全部走 `LambdaQueryWrapper` 的条件式拼接（`eq(condition, ...)` / `like(condition, ...)`）；控制器参数加 `@Valid` 触发校验（非 @RequestBody 的 POJO 参数校验必须显式 @Valid，首轮冒烟漏加导致非法值直穿，已补）。
+
+冒烟：无条件回归 total=10 不变 ✓；名称「审批制」模糊命中 3 场 ✓；joinMode=1 全为审批制 ✓；status=1 全为进行中 ✓；组合 status=0&joinMode=1 精确 ✓；非法 joinMode=2/status=9 → 40000 ✓
 
 ## 一、需求
 
