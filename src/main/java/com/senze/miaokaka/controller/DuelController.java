@@ -77,10 +77,20 @@ public class DuelController {
     }
 
     @GetMapping("/list")
-    @Operation(summary = "我的死斗列表", description = "我创建的 + 我参与的")
+    @Operation(summary = "我的死斗列表", description = "我创建的 + 我参与的 + 我有待审申请的")
     public BaseResponse<List<DuelVO>> list(HttpServletRequest servletRequest) {
         User user = userService.getLoginUser(servletRequest);
         return ResultUtils.success(duelService.listMine(user.getId()));
+    }
+
+    @GetMapping("/hall")
+    @Operation(summary = "死斗大厅", description = "全量招募中+进行中的死斗分页（招募中优先、每页内最新在前，pageSize 上限 50）；轻量脱敏不带成员明细；myRelation=leader/member/applicant/null 标识我与该局的关系")
+    public BaseResponse<com.baomidou.mybatisplus.extension.plugins.pagination.Page<com.senze.miaokaka.model.vo.DuelHallVO>> hall(
+            @RequestParam(defaultValue = "1") long pageNum,
+            @RequestParam(defaultValue = "10") long pageSize,
+            HttpServletRequest servletRequest) {
+        User user = userService.getLoginUser(servletRequest);
+        return ResultUtils.success(duelService.hall(pageNum, pageSize, user.getId()));
     }
 
     @GetMapping("/{duelId}")

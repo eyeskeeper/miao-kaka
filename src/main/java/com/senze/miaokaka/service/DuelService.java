@@ -64,6 +64,13 @@ public interface DuelService extends IService<Duel> {
     List<DuelVO> listMine(Long userId);
 
     /**
+     * 死斗大厅：全量招募中 + 进行中的死斗分页（招募中优先、最新在前，轻量脱敏不带成员明细）；
+     * myRelation 标识观看者与各局的关系（leader/member/applicant/null）
+     */
+    com.baomidou.mybatisplus.extension.plugins.pagination.Page<com.senze.miaokaka.model.vo.DuelHallVO> hall(
+            long pageNum, long pageSize, Long viewerId);
+
+    /**
      * 开赛扫描：到达开始日的招募中死斗自动开始（不足 2 人则解散并全额退款；待审申请自动拒绝）
      */
     void startDueDuels();

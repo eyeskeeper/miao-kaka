@@ -2,6 +2,7 @@ package com.senze.miaokaka.service.impl;
 
 import cn.hutool.core.util.StrUtil;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.spring.service.impl.ServiceImpl;
 import com.senze.miaokaka.common.ErrorCode;
 import com.senze.miaokaka.constant.CheckInConstant;
@@ -43,6 +44,7 @@ import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -382,6 +384,60 @@ public class DuelServiceImpl extends ServiceImpl<DuelMapper, Duel> implements Du
                 .sorted(Comparator.comparing(Duel::getId).reversed())
                 .map(duel -> buildDuelVO(duel, userId))
                 .toList();
+    }
+
+    @Override
+    public com.baomidou.mybatisplus.extension.plugins.pagination.Page<com.senze.miaokaka.model.vo.DuelHallVO> hall(
+            long pageNum, long pageSize, Long viewerId) {
+        Page<Duel> page = page(new Page<>(pageNum, Math.min(pageSize, 50)),
+                new LambdaQueryWrapper<Duel>()
+                        .in(Duel::getStatus, DuelConstant.DUEL_STATUS_RECRUITING, DuelConstant.DUEL_STATUS_RUNNING)
+                        .orderByAsc(Duel::getStatus)
+                        .orderByDesc(Duel::getId));
+        List<Duel> duels = page.getRecords();
+        List<com.senze.miaokaka.model.vo.DuelHallVO> vos = new ArrayList<>(duels.size());
+        if (!duels.isEmpty()) {
+            List<Long> duelIds = duels.stream().map(Duel::getId).toList();
+            Map<Long, User> leaders = userMapper.selectBatchIds(duels.stream()
+                            .map(Duel::getLeaderId).distinct().toList())
+                    .stream().collect(Collectors.toMap(User::getId, Function.identity()));
+            Set<Long> myMemberDuelIds = duelMemberMapper.selectList(new LambdaQueryWrapper<DuelMember>()
+                            .eq(DuelMember::getUserId, viewerId)
+                            .in(DuelMember::getDuelId, duelIds)
+                            .ne(DuelMember::getStatus, DuelConstant.MEMBER_STATUS_QUIT))
+                    .stream().map(DuelMember::getDuelId).collect(Collectors.toSet());
+            Set<Long> myAppliedDuelIds = duelJoinRequestMapper.selectList(new LambdaQueryWrapper<DuelJoinRequest>()
+                            .eq(DuelJoinRequest::getUserId, viewerId)
+                            .eq(DuelJoinRequest::getStatus, DuelConstant.JOIN_REQUEST_PENDING)
+                            .in(DuelJoinRequest::getDuelId, duelIds))
+                    .stream().map(DuelJoinRequest::getDuelId).collect(Collectors.toSet());
+            for (Duel duel : duels) {
+                com.senze.miaokaka.model.vo.DuelHallVO vo = new com.senze.miaokaka.model.vo.DuelHallVO();
+                vo.setId(duel.getId());
+                vo.setDuelName(duel.getDuelName());
+                vo.setDuelDesc(duel.getDuelDesc());
+                vo.setLeaderId(duel.getLeaderId());
+                User leader = leaders.get(duel.getLeaderId());
+                if (leader != null) {
+                    vo.setLeaderName(leader.getUserName());
+                }
+                vo.setJoinMode(duel.getJoinMode());
+                vo.setDepositPerMember(duel.getDepositPerMember());
+                vo.setTotalDays(duel.getTotalDays());
+                vo.setMemberCount(duel.getMemberCount());
+                vo.setStatus(duel.getStatus());
+                vo.setStartDate(duel.getStartDate());
+                vo.setEndDate(duel.getEndDate());
+                vo.setMyRelation(duel.getLeaderId().equals(viewerId) ? "leader"
+                        : myMemberDuelIds.contains(duel.getId()) ? "member"
+                        : myAppliedDuelIds.contains(duel.getId()) ? "applicant" : null);
+                vos.add(vo);
+            }
+        }
+        Page<com.senze.miaokaka.model.vo.DuelHallVO> voPage =
+                new Page<>(page.getCurrent(), page.getSize(), page.getTotal());
+        voPage.setRecords(vos);
+        return voPage;
     }
 
     // endregion
