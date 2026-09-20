@@ -161,14 +161,17 @@ create table `duel`
     id                  bigint       not null auto_increment comment '死斗id' primary key,
     duel_name           varchar(128) not null comment '死斗名称',
     duel_desc           varchar(512)          default null comment '死斗描述',
+    daily_tasks         json                  default null comment '每日任务清单（JSON 数组字符串，AI 草稿/组长自定义；空=无任务清单）',
     leader_id           bigint       not null comment '组长id（创建者）',
     join_mode           tinyint               default 0 not null comment '加入模式 (0:自由加入, 1:审批加入)',
+    hidden              tinyint               default 0 not null comment '是否隐藏 (0:公开, 1:隐藏；隐藏局不在招募大厅出现，仅可通过组号/邀请海报发现)',
     deposit_per_member  int          not null comment '每人押金（喵币，100~5000）',
     total_days          int          not null comment '挑战天数（3~365）',
-    start_date          date         not null comment '开始日期（北京时间）',
+    start_date          date         not null comment '开始日期（北京时间，最早为明天）',
     end_date            date         not null comment '结束日期 = 开始日期 + total_days - 1',
     status              tinyint               default 0 not null comment '状态 (0:招募中, 1:进行中, 2:已结算, 3:已解散)',
     member_count        int                   default 1 not null comment '当前人数（冗余）',
+    max_members         int                   default 50 not null comment '人数上限（2~50，创建时组长确定；存量局默认 50）',
     total_pool          int                   default 0 not null comment '当前奖池总额（人数×押金，冗余）',
     removed_pool        int                   default 0 not null comment '被移除成员罚没池（结算时按剩余成员天数占比分配）',
     settled             tinyint               default 0 not null comment '结算是否完成（幂等标记）',
@@ -295,3 +298,7 @@ create table `user_notification`
 
 -- 死斗任务清单（2026-09-20 增补：组长创建时带入，成员影子计划复制）
 alter table `duel` add column `daily_tasks` json default null comment '每日任务清单（JSON 数组字符串，AI 草稿/组长自定义；空=无任务清单）' after `duel_desc`;
+
+-- 死斗组限制（2026-09-20 增补：组长规定人数上限 2~50、隐藏局不进招募大厅）
+alter table `duel` add column `max_members` int not null default 50 comment '人数上限（2~50，创建时组长确定；存量局默认 50）' after `member_count`;
+alter table `duel` add column `hidden` tinyint not null default 0 comment '是否隐藏 (0:公开, 1:隐藏；隐藏局不在招募大厅出现，仅可通过组号/邀请海报发现)' after `join_mode`;

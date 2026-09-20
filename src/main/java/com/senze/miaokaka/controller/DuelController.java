@@ -70,7 +70,7 @@ public class DuelController {
     private UserService userService;
 
     @PostMapping
-    @Operation(summary = "创建死斗", description = "创建者即组长并立即扣押金；默认明天开赛；招募中可加入/退出，开始后锁定")
+    @Operation(summary = "创建死斗", description = "创建者即组长并立即扣押金；开始日期最早为明天（不传默认明天）；需指定人数上限 maxMembers（2~50，含组长）；可选 hidden 隐藏（隐藏局不在招募大厅出现）；可选每日任务清单 dailyTasks；招募中可加入/退出，开始后锁定")
     public BaseResponse<DuelVO> create(@Valid @RequestBody DuelCreateRequest request, HttpServletRequest servletRequest) {
         User user = userService.getLoginUser(servletRequest);
         return ResultUtils.success(duelService.create(user.getId(), request));
@@ -128,6 +128,14 @@ public class DuelController {
                                                   HttpServletRequest servletRequest) {
         User user = userService.getLoginUser(servletRequest);
         return ResultUtils.success(duelService.reviewApplication(user.getId(), duelId, request));
+    }
+
+    @PostMapping("/{duelId}/applications/approve-all")
+    @Operation(summary = "一键通过全部申请", description = "仅组长、仅招募中；按申请顺序逐个通过（喵币不足自动拒绝留痕）；到人数上限即停止，剩余申请保持待审")
+    public BaseResponse<com.senze.miaokaka.model.vo.ApplicationsApproveAllVO> approveAll(
+            @PathVariable Long duelId, HttpServletRequest servletRequest) {
+        User user = userService.getLoginUser(servletRequest);
+        return ResultUtils.success(duelService.approveAllApplications(user.getId(), duelId));
     }
 
     @PostMapping("/{duelId}/members/{targetUserId}/remove")

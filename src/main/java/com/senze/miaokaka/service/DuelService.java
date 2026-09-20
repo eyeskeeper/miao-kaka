@@ -48,6 +48,12 @@ public interface DuelService extends IService<Duel> {
     String reviewApplication(Long userId, Long duelId, JoinApplicationReviewRequest request);
 
     /**
+     * 一键通过：按申请 id 升序逐个通过全部待审申请（喵币不足自动拒绝留痕）；
+     * 通过到人数上限即停止，剩余申请保持待审
+     */
+    com.senze.miaokaka.model.vo.ApplicationsApproveAllVO approveAllApplications(Long userId, Long duelId);
+
+    /**
      * 组长移除成员：招募中=全额退款；进行中=即时结算（退剩余天数份额，缺勤份额入罚没池）
      */
     DuelVO removeMember(Long userId, Long duelId, Long targetUserId);

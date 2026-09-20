@@ -33,6 +33,11 @@ public class DuelVO implements Serializable {
      */
     private Integer joinMode;
 
+    /**
+     * 是否隐藏（隐藏局不在招募大厅出现）
+     */
+    private Boolean hidden;
+
     private Integer depositPerMember;
 
     private Integer totalDays;
@@ -47,6 +52,11 @@ public class DuelVO implements Serializable {
     private Integer status;
 
     private Integer memberCount;
+
+    /**
+     * 人数上限（2~50）
+     */
+    private Integer maxMembers;
 
     private Integer totalPool;
 

@@ -61,5 +61,18 @@ public class DuelCreateRequest implements Serializable {
     @Max(value = 1, message = "加入模式不合法")
     private Integer joinMode = 0;
 
+    /**
+     * 人数上限（2~50，含组长；满员后无法再加入/申请）
+     */
+    @NotNull(message = "人数上限不能为空")
+    @Min(value = 2, message = "人数上限最少 2 人")
+    @Max(value = 50, message = "人数上限最多 50 人")
+    private Integer maxMembers;
+
+    /**
+     * 是否隐藏（true=不在招募大厅出现，仅可通过组号/邀请海报发现）
+     */
+    private Boolean hidden;
+
     private static final long serialVersionUID = 1L;
 }

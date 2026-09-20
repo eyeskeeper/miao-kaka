@@ -53,6 +53,11 @@ public class Duel implements Serializable {
     private Integer joinMode;
 
     /**
+     * 是否隐藏 (0:公开, 1:隐藏；隐藏局不在招募大厅出现)
+     */
+    private Integer hidden;
+
+    /**
      * 每人押金（喵币）
      */
     private Integer depositPerMember;
@@ -81,6 +86,11 @@ public class Duel implements Serializable {
      * 当前人数（冗余）
      */
     private Integer memberCount;
+
+    /**
+     * 人数上限（2~50，创建时组长确定；存量局默认 50）
+     */
+    private Integer maxMembers;
 
     /**
      * 当前奖池总额（人数×押金，冗余）

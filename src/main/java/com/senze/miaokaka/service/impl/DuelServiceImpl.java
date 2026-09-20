@@ -101,7 +101,7 @@ public class DuelServiceImpl extends ServiceImpl<DuelMapper, Duel> implements Du
                         ErrorCode.PARAMS_ERROR, "开始日期格式应为 yyyy-MM-dd");
             }
         }
-        ThrowUtils.throwIf(startDate.isBefore(today), ErrorCode.PARAMS_ERROR, "开始日期不能早于今天");
+        ThrowUtils.throwIf(!startDate.isAfter(today), ErrorCode.PARAMS_ERROR, "开始日期最早为明天");
 
         Duel duel = transactionTemplate.execute(status -> {
             Duel d = new Duel();
@@ -114,8 +114,10 @@ public class DuelServiceImpl extends ServiceImpl<DuelMapper, Duel> implements Du
             d.setDailyTasks(tasks == null || tasks.isEmpty() ? null : JSONUtil.toJsonStr(tasks));
             d.setLeaderId(userId);
             d.setJoinMode(request.getJoinMode() == null ? DuelConstant.JOIN_MODE_FREE : request.getJoinMode());
+            d.setHidden(Boolean.TRUE.equals(request.getHidden()) ? 1 : 0);
             d.setDepositPerMember(request.getDepositPerMember());
             d.setTotalDays(request.getTotalDays());
+            d.setMaxMembers(request.getMaxMembers());
             d.setStartDate(startDate);
             d.setEndDate(startDate.plusDays(request.getTotalDays() - 1L));
             d.setStatus(DuelConstant.DUEL_STATUS_RECRUITING);
@@ -169,6 +171,8 @@ public class DuelServiceImpl extends ServiceImpl<DuelMapper, Duel> implements Du
                 ErrorCode.OPERATION_ERROR, "该死斗已开始或结束，无法申请");
         ThrowUtils.throwIf(duel.getJoinMode() == null || duel.getJoinMode() != DuelConstant.JOIN_MODE_APPROVAL,
                 ErrorCode.OPERATION_ERROR, "该死斗为自由加入，直接加入即可");
+        ThrowUtils.throwIf(duel.getMemberCount() >= maxMembersOf(duel),
+                ErrorCode.OPERATION_ERROR, "该死斗已满员，无法申请");
         long joined = duelMemberMapper.selectCount(new LambdaQueryWrapper<DuelMember>()
                 .eq(DuelMember::getDuelId, duelId)
                 .eq(DuelMember::getUserId, userId)
@@ -229,12 +233,59 @@ public class DuelServiceImpl extends ServiceImpl<DuelMapper, Duel> implements Du
                     StrUtil.blankToDefault(request.getRemark(), "组长拒绝"));
             return "已拒绝该加入申请";
         }
+        String outcome = approveOneApplication(duel, joinRequest, StrUtil.blankToDefault(request.getRemark(), null));
+        if (ApproveOutcome.FULL.equals(outcome)) {
+            throw new com.senze.miaokaka.exception.BusinessException(
+                    ErrorCode.OPERATION_ERROR, "该死斗已满员，无法通过申请");
+        }
+        if (ApproveOutcome.INSUFFICIENT.equals(outcome)) {
+            return "申请人喵币不足，已自动拒绝";
+        }
+        return "已通过，成员入组并扣除押金";
+    }
+
+    @Override
+    public com.senze.miaokaka.model.vo.ApplicationsApproveAllVO approveAllApplications(Long userId, Long duelId) {
+        Duel duel = getRequiredDuel(duelId);
+        ThrowUtils.throwIf(!duel.getLeaderId().equals(userId), ErrorCode.NO_AUTH_ERROR, "仅组长可一键通过申请");
         ThrowUtils.throwIf(duel.getStatus() != DuelConstant.DUEL_STATUS_RECRUITING,
                 ErrorCode.OPERATION_ERROR, "死斗已开始，无法再通过申请");
-        ThrowUtils.throwIf(duel.getMemberCount() >= DuelConstant.MEMBER_MAX,
-                ErrorCode.OPERATION_ERROR, "该死斗已满员，无法通过申请");
+        List<DuelJoinRequest> pendings = duelJoinRequestMapper.selectList(
+                new LambdaQueryWrapper<DuelJoinRequest>()
+                        .eq(DuelJoinRequest::getDuelId, duelId)
+                        .eq(DuelJoinRequest::getStatus, DuelConstant.JOIN_REQUEST_PENDING)
+                        .orderByAsc(DuelJoinRequest::getId));
+        com.senze.miaokaka.model.vo.ApplicationsApproveAllVO vo =
+                new com.senze.miaokaka.model.vo.ApplicationsApproveAllVO();
+        for (DuelJoinRequest joinRequest : pendings) {
+            String outcome = approveOneApplication(duel, joinRequest, null);
+            if (ApproveOutcome.SUCCESS.equals(outcome)) {
+                vo.setApproved(vo.getApproved() + 1);
+            } else if (ApproveOutcome.INSUFFICIENT.equals(outcome)) {
+                vo.setRejected(vo.getRejected() + 1);
+            } else {
+                // 满员：剩余申请保持待审（局仍招募中，名额释放后可再批）
+                vo.setSkipped(vo.getSkipped() + 1);
+                break;
+            }
+        }
+        return vo;
+    }
+
+    /**
+     * 单条通过申请（组长单审与一键通过共用）：满员/在册/余额预检 + 事务内扣押金入组。
+     *
+     * @return ApproveOutcome.SUCCESS / FULL（满员跳过，申请保持待审）/
+     *         INSUFFICIENT（喵币不足，已自动拒绝留痕）
+     */
+    private String approveOneApplication(Duel duel, DuelJoinRequest joinRequest, String remark) {
+        ThrowUtils.throwIf(duel.getStatus() != DuelConstant.DUEL_STATUS_RECRUITING,
+                ErrorCode.OPERATION_ERROR, "死斗已开始，无法再通过申请");
+        if (duel.getMemberCount() >= maxMembersOf(duel)) {
+            return ApproveOutcome.FULL;
+        }
         long joined = duelMemberMapper.selectCount(new LambdaQueryWrapper<DuelMember>()
-                .eq(DuelMember::getDuelId, duelId)
+                .eq(DuelMember::getDuelId, duel.getId())
                 .eq(DuelMember::getUserId, joinRequest.getUserId())
                 .ne(DuelMember::getStatus, DuelConstant.MEMBER_STATUS_QUIT));
         ThrowUtils.throwIf(joined > 0, ErrorCode.OPERATION_ERROR, "申请人已在该死斗中");
@@ -244,17 +295,28 @@ public class DuelServiceImpl extends ServiceImpl<DuelMapper, Duel> implements Du
         if (balance < duel.getDepositPerMember()) {
             finishRequest(joinRequest, DuelConstant.JOIN_REQUEST_REJECTED,
                     "喵币不足（需 " + duel.getDepositPerMember() + "），自动拒绝");
-            return "申请人喵币不足，已自动拒绝";
+            return ApproveOutcome.INSUFFICIENT;
         }
         transactionTemplate.execute(status -> {
             // 扣押金 + 建影子计划 + 入组（预检与扣款间极端并发由原子扣款兜底，失败则整体回滚、申请保持待审）
-            walletService.chargeDeposit(joinRequest.getUserId(), duel.getDepositPerMember(), duelId);
+            walletService.chargeDeposit(joinRequest.getUserId(), duel.getDepositPerMember(), duel.getId());
             createMembershipTx(duel, joinRequest.getUserId());
-            finishRequest(joinRequest, DuelConstant.JOIN_REQUEST_APPROVED,
-                    StrUtil.blankToDefault(request.getRemark(), null));
+            finishRequest(joinRequest, DuelConstant.JOIN_REQUEST_APPROVED, remark);
             return null;
         });
-        return "已通过，成员入组并扣除押金";
+        return ApproveOutcome.SUCCESS;
+    }
+
+    /**
+     * 单条审核/一键通过的结果码
+     */
+    private static final class ApproveOutcome {
+        private static final String SUCCESS = "success";
+        private static final String FULL = "full";
+        private static final String INSUFFICIENT = "insufficient";
+
+        private ApproveOutcome() {
+        }
     }
 
     private void finishRequest(DuelJoinRequest request, int status, String remark) {
@@ -412,6 +474,8 @@ public class DuelServiceImpl extends ServiceImpl<DuelMapper, Duel> implements Du
             com.senze.miaokaka.model.dto.duel.DuelHallQueryRequest request, Long viewerId) {
         LambdaQueryWrapper<Duel> wrapper = new LambdaQueryWrapper<Duel>()
                 .in(Duel::getStatus, DuelConstant.DUEL_STATUS_RECRUITING, DuelConstant.DUEL_STATUS_RUNNING)
+                // 隐藏局不进招募大厅（仅可通过组号/邀请海报发现）
+                .ne(Duel::getHidden, 1)
                 .eq(request.getStatus() != null, Duel::getStatus, request.getStatus())
                 .eq(request.getJoinMode() != null, Duel::getJoinMode, request.getJoinMode())
                 .like(StrUtil.isNotBlank(request.getDuelName()), Duel::getDuelName,
@@ -555,8 +619,8 @@ public class DuelServiceImpl extends ServiceImpl<DuelMapper, Duel> implements Du
      * 加入事务：扣押金 + 成员落库
      */
     private void joinDuelTx(Duel duel, Long userId) {
-        ThrowUtils.throwIf(duel.getMemberCount() >= DuelConstant.MEMBER_MAX,
-                ErrorCode.OPERATION_ERROR, "该死斗已满员（" + DuelConstant.MEMBER_MAX + " 人）");
+        ThrowUtils.throwIf(duel.getMemberCount() >= maxMembersOf(duel),
+                ErrorCode.OPERATION_ERROR, "该死斗已满员（" + maxMembersOf(duel) + " 人）");
         walletService.chargeDeposit(userId, duel.getDepositPerMember(), duel.getId());
         createMembershipTx(duel, userId);
     }
@@ -566,8 +630,8 @@ public class DuelServiceImpl extends ServiceImpl<DuelMapper, Duel> implements Du
      * 退出（QUIT）成员的行仍占 uk_duel_user：重进时复活原行并重置押金快照/已退/天数，而非插入新行。
      */
     private void createMembershipTx(Duel duel, Long userId) {
-        ThrowUtils.throwIf(duel.getMemberCount() >= DuelConstant.MEMBER_MAX,
-                ErrorCode.OPERATION_ERROR, "该死斗已满员（" + DuelConstant.MEMBER_MAX + " 人）");
+        ThrowUtils.throwIf(duel.getMemberCount() >= maxMembersOf(duel),
+                ErrorCode.OPERATION_ERROR, "该死斗已满员（" + maxMembersOf(duel) + " 人）");
         // 复制死斗任务清单到影子计划（无清单的局维持旧行为）
         List<String> tasks = StrUtil.isBlank(duel.getDailyTasks()) ? null
                 : JSONUtil.toList(duel.getDailyTasks(), String.class);
@@ -619,6 +683,13 @@ public class DuelServiceImpl extends ServiceImpl<DuelMapper, Duel> implements Du
         return duel;
     }
 
+    /**
+     * 本局人数上限（存量局 max_members 为空的防御兜底 50）
+     */
+    private int maxMembersOf(Duel duel) {
+        return duel.getMaxMembers() == null ? DuelConstant.MEMBER_MAX : duel.getMaxMembers();
+    }
+
     private DuelMember getMember(Long duelId, Long userId) {
         return duelMemberMapper.selectOne(new LambdaQueryWrapper<DuelMember>()
                 .eq(DuelMember::getDuelId, duelId)
@@ -658,7 +729,9 @@ public class DuelServiceImpl extends ServiceImpl<DuelMapper, Duel> implements Du
         vo.setStartDate(aggDuel.getStartDate());
         vo.setEndDate(aggDuel.getEndDate());
         vo.setStatus(aggDuel.getStatus());
+        vo.setHidden(aggDuel.getHidden() != null && aggDuel.getHidden() == 1);
         vo.setMemberCount(aggDuel.getMemberCount());
+        vo.setMaxMembers(aggDuel.getMaxMembers());
         vo.setTotalPool(aggDuel.getTotalPool());
         vo.setSettled(aggDuel.getSettled() != null && aggDuel.getSettled() == 1);
 
