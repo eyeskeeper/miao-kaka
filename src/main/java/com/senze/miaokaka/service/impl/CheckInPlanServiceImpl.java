@@ -151,7 +151,8 @@ public class CheckInPlanServiceImpl extends ServiceImpl<CheckInPlanMapper, Check
 
     @Override
     @Transactional(rollbackFor = Exception.class)
-    public CheckInPlan createShadowPlan(Long userId, String duelName, int totalDays, Long duelId) {
+    public CheckInPlan createShadowPlan(Long userId, String duelName, int totalDays, Long duelId,
+                                        java.util.List<String> dailyTasks) {
         CheckInPlan plan = new CheckInPlan();
         plan.setUserId(userId);
         plan.setPlanSource(CheckInConstant.PLAN_SOURCE_DUEL);
@@ -162,7 +163,13 @@ public class CheckInPlanServiceImpl extends ServiceImpl<CheckInPlanMapper, Check
         plan.setTargetDays(totalDays);
         plan.setCurrentStreak(0);
         plan.setMaxStreak(0);
-        plan.setTotalTasks(1);
+        if (dailyTasks != null && !dailyTasks.isEmpty()) {
+            // 复制死斗任务清单：成员可勾选；勾满不自动打卡，凭证审核仍是唯一完成门槛
+            plan.setDailyTasks(JSONUtil.toJsonStr(dailyTasks));
+            plan.setTotalTasks(dailyTasks.size());
+        } else {
+            plan.setTotalTasks(1);
+        }
         plan.setTaskProgress("");
         plan.setCompletedTasks(0);
         plan.setStatus(CheckInConstant.PLAN_STATUS_ACTIVE);

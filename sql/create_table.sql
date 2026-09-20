@@ -292,3 +292,6 @@ create table `user_notification`
     index idx_user_read (user_id, is_read),
     index idx_user (user_id)
 ) comment='用户通知表' collate = utf8mb4_unicode_ci;
+
+-- 死斗任务清单（2026-09-20 增补：组长创建时带入，成员影子计划复制）
+alter table `duel` add column `daily_tasks` json default null comment '每日任务清单（JSON 数组字符串，AI 草稿/组长自定义；空=无任务清单）' after `duel_desc`;

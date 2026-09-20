@@ -38,6 +38,11 @@ public class Duel implements Serializable {
     private String duelDesc;
 
     /**
+     * 每日任务清单（JSON 数组字符串，AI 草稿/组长自定义；空=无任务清单）
+     */
+    private String dailyTasks;
+
+    /**
      * 组长id（创建者）
      */
     private Long leaderId;

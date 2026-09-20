@@ -1,6 +1,7 @@
 package com.senze.miaokaka.service.impl;
 
 import cn.hutool.core.util.StrUtil;
+import cn.hutool.json.JSONUtil;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.spring.service.impl.ServiceImpl;
@@ -106,6 +107,11 @@ public class DuelServiceImpl extends ServiceImpl<DuelMapper, Duel> implements Du
             Duel d = new Duel();
             d.setDuelName(request.getDuelName().trim());
             d.setDuelDesc(StrUtil.blankToDefault(request.getDuelDesc(), null));
+            // 每日任务清单：规整（trim/去空/最多5项）后随局落库，成员影子计划复制
+            List<String> tasks = request.getDailyTasks() == null ? null
+                    : request.getDailyTasks().stream().map(String::trim)
+                            .filter(StrUtil::isNotBlank).limit(5).toList();
+            d.setDailyTasks(tasks == null || tasks.isEmpty() ? null : JSONUtil.toJsonStr(tasks));
             d.setLeaderId(userId);
             d.setJoinMode(request.getJoinMode() == null ? DuelConstant.JOIN_MODE_FREE : request.getJoinMode());
             d.setDepositPerMember(request.getDepositPerMember());
@@ -562,8 +568,11 @@ public class DuelServiceImpl extends ServiceImpl<DuelMapper, Duel> implements Du
     private void createMembershipTx(Duel duel, Long userId) {
         ThrowUtils.throwIf(duel.getMemberCount() >= DuelConstant.MEMBER_MAX,
                 ErrorCode.OPERATION_ERROR, "该死斗已满员（" + DuelConstant.MEMBER_MAX + " 人）");
+        // 复制死斗任务清单到影子计划（无清单的局维持旧行为）
+        List<String> tasks = StrUtil.isBlank(duel.getDailyTasks()) ? null
+                : JSONUtil.toList(duel.getDailyTasks(), String.class);
         CheckInPlan shadowPlan = checkInPlanService.createShadowPlan(
-                userId, duel.getDuelName(), duel.getTotalDays(), duel.getId());
+                userId, duel.getDuelName(), duel.getTotalDays(), duel.getId(), tasks);
         DuelMember existing = getMember(duel.getId(), userId);
         if (existing != null) {
             existing.setPlanId(shadowPlan.getId());
@@ -640,6 +649,8 @@ public class DuelServiceImpl extends ServiceImpl<DuelMapper, Duel> implements Du
         vo.setId(aggDuel.getId());
         vo.setDuelName(aggDuel.getDuelName());
         vo.setDuelDesc(aggDuel.getDuelDesc());
+        vo.setDailyTasks(StrUtil.isBlank(aggDuel.getDailyTasks()) ? null
+                : JSONUtil.toList(aggDuel.getDailyTasks(), String.class));
         vo.setLeaderId(aggDuel.getLeaderId());
         vo.setJoinMode(aggDuel.getJoinMode());
         vo.setDepositPerMember(aggDuel.getDepositPerMember());

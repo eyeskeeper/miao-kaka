@@ -9,6 +9,7 @@ import jakarta.validation.constraints.Size;
 import lombok.Data;
 
 import java.io.Serializable;
+import java.util.List;
 
 /**
  * 创建习惯死斗请求
@@ -24,6 +25,12 @@ public class DuelCreateRequest implements Serializable {
 
     @Size(max = 512, message = "死斗描述最长 512 字")
     private String duelDesc;
+
+    /**
+     * 每日任务清单（可选，最多 5 项；成员影子计划将复制此清单，可由 POST /ai/plan/draft 草稿确认而来）
+     */
+    @Size(max = 5, message = "每日任务最多 5 项")
+    private List<String> dailyTasks;
 
     /**
      * 每人押金（喵币）

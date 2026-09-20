@@ -21,6 +21,11 @@ public class DuelVO implements Serializable {
 
     private String duelDesc;
 
+    /**
+     * 每日任务清单（无任务清单的局为 null）
+     */
+    private List<String> dailyTasks;
+
     private Long leaderId;
 
     /**

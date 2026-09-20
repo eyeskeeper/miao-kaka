@@ -40,7 +40,9 @@ public interface CheckInPlanService extends IService<CheckInPlan> {
     CheckInPlan getOwnedPlan(Long userId, Long planId);
 
     /**
-     * 为死斗成员创建影子计划（自动生成猫，复用打卡引擎）
+     * 为死斗成员创建影子计划（自动生成猫，复用打卡引擎）；
+     * dailyTasks 非空时复制死斗的每日任务清单（成员可勾选，凭证审核仍是唯一完成门槛）
      */
-    CheckInPlan createShadowPlan(Long userId, String duelName, int totalDays, Long duelId);
+    CheckInPlan createShadowPlan(Long userId, String duelName, int totalDays, Long duelId,
+                                 java.util.List<String> dailyTasks);
 }
