@@ -277,3 +277,18 @@ create table `duel_invite`
     unique key uk_duel_inviter (duel_id, inviter_id),
     index idx_duel (duel_id)
 ) comment='死斗邀请码表' collate = utf8mb4_unicode_ci;
+
+-- 用户通知表（通用通知，type 区分业务：1被移除出死斗，后续事件类型复用）
+create table `user_notification`
+(
+    id          bigint auto_increment comment '通知id' primary key,
+    user_id     bigint                             not null comment '接收人id',
+    type        tinyint                            not null comment '通知类型 (1:被移除出死斗)',
+    title       varchar(64)                        not null comment '标题',
+    content     varchar(255)                       not null comment '正文',
+    ref_id      bigint                             default null comment '关联业务id（如死斗id）',
+    is_read     tinyint      default 0             not null comment '是否已读 (0:未读, 1:已读)',
+    create_time datetime default current_timestamp not null comment '创建时间',
+    index idx_user_read (user_id, is_read),
+    index idx_user (user_id)
+) comment='用户通知表' collate = utf8mb4_unicode_ci;

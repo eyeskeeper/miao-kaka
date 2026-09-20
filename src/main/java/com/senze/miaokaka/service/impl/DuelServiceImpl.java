@@ -7,6 +7,7 @@ import com.baomidou.mybatisplus.spring.service.impl.ServiceImpl;
 import com.senze.miaokaka.common.ErrorCode;
 import com.senze.miaokaka.constant.CheckInConstant;
 import com.senze.miaokaka.constant.DuelConstant;
+import com.senze.miaokaka.constant.NotificationConstant;
 import com.senze.miaokaka.exception.ThrowUtils;
 import com.senze.miaokaka.mapper.DuelMapper;
 import com.senze.miaokaka.mapper.DuelJoinRequestMapper;
@@ -31,6 +32,7 @@ import com.senze.miaokaka.service.CheckInPlanService;
 import com.senze.miaokaka.service.DuelImpeachmentService;
 import com.senze.miaokaka.service.DuelService;
 import com.senze.miaokaka.service.DuelSettlementService;
+import com.senze.miaokaka.service.NotificationService;
 import com.senze.miaokaka.service.WalletService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -75,6 +77,8 @@ public class DuelServiceImpl extends ServiceImpl<DuelMapper, Duel> implements Du
     private final DuelSettlementService duelSettlementService;
 
     private final DuelImpeachmentService duelImpeachmentService;
+
+    private final NotificationService notificationService;
 
     private final TransactionTemplate transactionTemplate;
 
@@ -296,9 +300,11 @@ public class DuelServiceImpl extends ServiceImpl<DuelMapper, Duel> implements Du
                 ErrorCode.OPERATION_ERROR, "弹劾进行中，不能移除弹劾发起人");
 
         transactionTemplate.execute(status -> {
+            String refundDesc;
             if (duel.getStatus() == DuelConstant.DUEL_STATUS_RECRUITING) {
                 // 招募中：语义等同退出，全额退款
                 walletService.refund(targetUserId, member.getDeposit(), duelId, "组长移除（招募中），全额退款");
+                refundDesc = "押金 " + member.getDeposit() + " 喵币已全额退还";
             } else {
                 // 进行中：即时结算——退剩余天数份额，缺勤份额入罚没池
                 LocalDate today = LocalDate.now(CheckInConstant.BIZ_ZONE);
@@ -312,7 +318,16 @@ public class DuelServiceImpl extends ServiceImpl<DuelMapper, Duel> implements Du
                 walletService.refund(targetUserId, removalRefund, duelId,
                         "组长移除，退还剩余 " + (duel.getTotalDays() - elapsed) + " 天份额");
                 duel.setRemovedPool((duel.getRemovedPool() == null ? 0 : duel.getRemovedPool()) + confiscated);
+                refundDesc = "已退还剩余 " + (duel.getTotalDays() - elapsed) + " 天份额 "
+                        + removalRefund + " 喵币，缺勤份额已入奖池";
             }
+            // 被移除通知：与移除同一事务，落库持久（隔天可见）
+            User leader = userMapper.selectById(userId);
+            notificationService.notify(targetUserId, NotificationConstant.TYPE_REMOVED_FROM_DUEL,
+                    "你被移出了死斗",
+                    "「" + duel.getDuelName() + "」组长 " + (leader == null ? "" : leader.getUserName())
+                            + " 将你移出；" + refundDesc,
+                    duel.getId());
             member.setStatus(DuelConstant.MEMBER_STATUS_REMOVED);
             duelMemberMapper.updateById(member);
             checkInPlanService.removeById(member.getPlanId());
