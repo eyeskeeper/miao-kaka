@@ -324,6 +324,11 @@ public class CheckInRecordServiceImpl extends ServiceImpl<CheckInRecordMapper, C
         vo.setPointsEarned(pointsEarned);
         vo.setTotalPoints(freshUser.getTotalPoints());
 
+        // 6. 打卡落定即开启新一天：清空任务位图。
+        // 位图若跨天残留，次日任意一次勾选都会立即重新满足 allDone 并自动打卡（一次点击完成全天）
+        plan.setTaskProgress("");
+        plan.setCompletedTasks(0);
+
         checkInPlanMapper.updateById(plan);
     }
 
