@@ -70,7 +70,7 @@ public class DuelController {
     private UserService userService;
 
     @PostMapping
-    @Operation(summary = "创建死斗", description = "创建者即组长并立即扣押金；开始日期最早为明天（不传默认明天）；需指定人数上限 maxMembers（2~50，含组长）；可选 hidden 隐藏（隐藏局不在招募大厅出现）；可选每日任务清单 dailyTasks；招募中可加入/退出，开始后锁定")
+    @Operation(summary = "创建死斗", description = "玩法模式 mode：0=押金死斗（押金必填 100~5000，开始后锁定）/ 1=组队打卡（无押金，进行中可自由加入退出）；创建者即组长；开始日期最早为明天（不传默认明天）；需指定人数上限 maxMembers（2~50，含组长）；可选 hidden 隐藏、每日任务清单 dailyTasks；审批制需组长批准（组队打卡进行中也可申请）")
     public BaseResponse<DuelVO> create(@Valid @RequestBody DuelCreateRequest request, HttpServletRequest servletRequest) {
         User user = userService.getLoginUser(servletRequest);
         return ResultUtils.success(duelService.create(user.getId(), request));

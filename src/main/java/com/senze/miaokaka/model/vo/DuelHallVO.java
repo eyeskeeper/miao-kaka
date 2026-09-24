@@ -24,6 +24,11 @@ public class DuelHallVO implements Serializable {
     private String leaderName;
 
     /**
+     * 玩法模式 (0:押金死斗, 1:组队打卡)
+     */
+    private Integer mode;
+
+    /**
      * 加入模式 (0:自由加入, 1:审批加入)
      */
     private Integer joinMode;

@@ -115,7 +115,12 @@ public class DuelServiceImpl extends ServiceImpl<DuelMapper, Duel> implements Du
             d.setLeaderId(userId);
             d.setJoinMode(request.getJoinMode() == null ? DuelConstant.JOIN_MODE_FREE : request.getJoinMode());
             d.setHidden(Boolean.TRUE.equals(request.getHidden()) ? 1 : 0);
-            d.setDepositPerMember(request.getDepositPerMember());
+            // 玩法模式：押金死斗必填押金（100~5000）；组队打卡无押金，落库存 0
+            boolean teamMode = request.getMode() != null && request.getMode() == DuelConstant.DUEL_MODE_TEAM;
+            ThrowUtils.throwIf(!teamMode && request.getDepositPerMember() == null,
+                    ErrorCode.PARAMS_ERROR, "押金死斗需要设置每人押金（100~5000 喵币）");
+            d.setMode(teamMode ? DuelConstant.DUEL_MODE_TEAM : DuelConstant.DUEL_MODE_DEPOSIT);
+            d.setDepositPerMember(teamMode ? 0 : request.getDepositPerMember());
             d.setTotalDays(request.getTotalDays());
             d.setMaxMembers(request.getMaxMembers());
             d.setStartDate(startDate);
@@ -135,7 +140,9 @@ public class DuelServiceImpl extends ServiceImpl<DuelMapper, Duel> implements Du
     @Override
     public DuelVO join(Long userId, Long duelId) {
         Duel duel = getRequiredDuel(duelId);
-        ThrowUtils.throwIf(duel.getStatus() != DuelConstant.DUEL_STATUS_RECRUITING,
+        // 组队打卡：进行中也可自由加入（加入当天即第 1 天）；押金死斗开始后锁定
+        ThrowUtils.throwIf(duel.getStatus() != DuelConstant.DUEL_STATUS_RECRUITING
+                        && !(duel.getStatus() == DuelConstant.DUEL_STATUS_RUNNING && isTeamMode(duel)),
                 ErrorCode.OPERATION_ERROR, "该死斗已开始或结束，无法加入");
         ThrowUtils.throwIf(duel.getJoinMode() != null && duel.getJoinMode() == DuelConstant.JOIN_MODE_APPROVAL,
                 ErrorCode.OPERATION_ERROR, "该死斗为审批加入制，请先提交加入申请");
@@ -145,7 +152,8 @@ public class DuelServiceImpl extends ServiceImpl<DuelMapper, Duel> implements Du
     @Override
     public DuelVO joinDirect(Long userId, Long duelId) {
         Duel duel = getRequiredDuel(duelId);
-        ThrowUtils.throwIf(duel.getStatus() != DuelConstant.DUEL_STATUS_RECRUITING,
+        ThrowUtils.throwIf(duel.getStatus() != DuelConstant.DUEL_STATUS_RECRUITING
+                        && !(duel.getStatus() == DuelConstant.DUEL_STATUS_RUNNING && isTeamMode(duel)),
                 ErrorCode.OPERATION_ERROR, "该死斗已开始或结束，无法加入");
         long joined = duelMemberMapper.selectCount(new LambdaQueryWrapper<DuelMember>()
                 .eq(DuelMember::getDuelId, duelId)
@@ -167,7 +175,9 @@ public class DuelServiceImpl extends ServiceImpl<DuelMapper, Duel> implements Du
     @Override
     public DuelVO apply(Long userId, Long duelId, Long inviterId) {
         Duel duel = getRequiredDuel(duelId);
-        ThrowUtils.throwIf(duel.getStatus() != DuelConstant.DUEL_STATUS_RECRUITING,
+        // 组队打卡：进行中也可提交申请（批准后加入当天即第 1 天）
+        ThrowUtils.throwIf(duel.getStatus() != DuelConstant.DUEL_STATUS_RECRUITING
+                        && !(duel.getStatus() == DuelConstant.DUEL_STATUS_RUNNING && isTeamMode(duel)),
                 ErrorCode.OPERATION_ERROR, "该死斗已开始或结束，无法申请");
         ThrowUtils.throwIf(duel.getJoinMode() == null || duel.getJoinMode() != DuelConstant.JOIN_MODE_APPROVAL,
                 ErrorCode.OPERATION_ERROR, "该死斗为自由加入，直接加入即可");
@@ -279,7 +289,10 @@ public class DuelServiceImpl extends ServiceImpl<DuelMapper, Duel> implements Du
      *         INSUFFICIENT（喵币不足，已自动拒绝留痕）
      */
     private String approveOneApplication(Duel duel, DuelJoinRequest joinRequest, String remark) {
-        ThrowUtils.throwIf(duel.getStatus() != DuelConstant.DUEL_STATUS_RECRUITING,
+        boolean teamMode = isTeamMode(duel);
+        // 组队打卡：进行中也可批准加入；押金死斗仅招募期
+        ThrowUtils.throwIf(duel.getStatus() != DuelConstant.DUEL_STATUS_RECRUITING
+                        && !(duel.getStatus() == DuelConstant.DUEL_STATUS_RUNNING && teamMode),
                 ErrorCode.OPERATION_ERROR, "死斗已开始，无法再通过申请");
         if (duel.getMemberCount() >= maxMembersOf(duel)) {
             return ApproveOutcome.FULL;
@@ -290,12 +303,14 @@ public class DuelServiceImpl extends ServiceImpl<DuelMapper, Duel> implements Du
                 .ne(DuelMember::getStatus, DuelConstant.MEMBER_STATUS_QUIT));
         ThrowUtils.throwIf(joined > 0, ErrorCode.OPERATION_ERROR, "申请人已在该死斗中");
 
-        // 余额预检：不足则自动拒绝并留痕（不消耗申请机会以外的任何东西）
-        int balance = walletService.getBalance(joinRequest.getUserId());
-        if (balance < duel.getDepositPerMember()) {
-            finishRequest(joinRequest, DuelConstant.JOIN_REQUEST_REJECTED,
-                    "喵币不足（需 " + duel.getDepositPerMember() + "），自动拒绝");
-            return ApproveOutcome.INSUFFICIENT;
+        // 余额预检：仅押金死斗需要（组队打卡无押金）；不足则自动拒绝并留痕
+        if (!teamMode) {
+            int balance = walletService.getBalance(joinRequest.getUserId());
+            if (balance < duel.getDepositPerMember()) {
+                finishRequest(joinRequest, DuelConstant.JOIN_REQUEST_REJECTED,
+                        "喵币不足（需 " + duel.getDepositPerMember() + "），自动拒绝");
+                return ApproveOutcome.INSUFFICIENT;
+            }
         }
         transactionTemplate.execute(status -> {
             // 扣押金 + 建影子计划 + 入组（预检与扣款间极端并发由原子扣款兜底，失败则整体回滚、申请保持待审）
@@ -329,14 +344,19 @@ public class DuelServiceImpl extends ServiceImpl<DuelMapper, Duel> implements Du
     @Override
     public DuelVO quit(Long userId, Long duelId) {
         Duel duel = getRequiredDuel(duelId);
-        ThrowUtils.throwIf(duel.getStatus() != DuelConstant.DUEL_STATUS_RECRUITING,
+        boolean teamMode = isTeamMode(duel);
+        // 组队打卡：进行中也可自由退出（无押金锁定）；押金死斗开始后锁定
+        ThrowUtils.throwIf(duel.getStatus() != DuelConstant.DUEL_STATUS_RECRUITING
+                        && !(duel.getStatus() == DuelConstant.DUEL_STATUS_RUNNING && teamMode),
                 ErrorCode.OPERATION_ERROR, "死斗已开始，押金锁定不可退出");
         DuelMember member = getMember(duelId, userId);
         ThrowUtils.throwIf(member == null || member.getStatus() == DuelConstant.MEMBER_STATUS_QUIT,
                 ErrorCode.NOT_FOUND_ERROR, "你不是该死斗成员");
         transactionTemplate.execute(status -> {
-            // 全额退款 + 成员退出 + 影子计划随之下架
-            walletService.refund(userId, member.getDeposit(), duelId, "开始前退出，全额退款");
+            // 退款（仅押金死斗招募期） + 成员退出 + 影子计划随之下架
+            if (duel.getStatus() == DuelConstant.DUEL_STATUS_RECRUITING && !teamMode) {
+                walletService.refund(userId, member.getDeposit(), duelId, "开始前退出，全额退款");
+            }
             member.setStatus(DuelConstant.MEMBER_STATUS_QUIT);
             duelMemberMapper.updateById(member);
             checkInPlanService.removeById(member.getPlanId());
@@ -369,7 +389,10 @@ public class DuelServiceImpl extends ServiceImpl<DuelMapper, Duel> implements Du
 
         transactionTemplate.execute(status -> {
             String refundDesc;
-            if (duel.getStatus() == DuelConstant.DUEL_STATUS_RECRUITING) {
+            if (isTeamMode(duel)) {
+                // 组队打卡：无押金，直接移除（招募中/进行中一致）
+                refundDesc = "组队打卡无押金，直接移除";
+            } else if (duel.getStatus() == DuelConstant.DUEL_STATUS_RECRUITING) {
                 // 招募中：语义等同退出，全额退款
                 walletService.refund(targetUserId, member.getDeposit(), duelId, "组长移除（招募中），全额退款");
                 refundDesc = "押金 " + member.getDeposit() + " 喵币已全额退还";
@@ -477,6 +500,7 @@ public class DuelServiceImpl extends ServiceImpl<DuelMapper, Duel> implements Du
                 // 隐藏局不进招募大厅（仅可通过组号/邀请海报发现）
                 .ne(Duel::getHidden, 1)
                 .eq(request.getStatus() != null, Duel::getStatus, request.getStatus())
+                .eq(request.getMode() != null, Duel::getMode, request.getMode())
                 .eq(request.getJoinMode() != null, Duel::getJoinMode, request.getJoinMode())
                 .like(StrUtil.isNotBlank(request.getDuelName()), Duel::getDuelName,
                         StrUtil.trim(request.getDuelName()))
@@ -621,7 +645,10 @@ public class DuelServiceImpl extends ServiceImpl<DuelMapper, Duel> implements Du
     private void joinDuelTx(Duel duel, Long userId) {
         ThrowUtils.throwIf(duel.getMemberCount() >= maxMembersOf(duel),
                 ErrorCode.OPERATION_ERROR, "该死斗已满员（" + maxMembersOf(duel) + " 人）");
-        walletService.chargeDeposit(userId, duel.getDepositPerMember(), duel.getId());
+        // 组队打卡：无押金，不扣款
+        if (!isTeamMode(duel)) {
+            walletService.chargeDeposit(userId, duel.getDepositPerMember(), duel.getId());
+        }
         createMembershipTx(duel, userId);
     }
 
@@ -635,8 +662,14 @@ public class DuelServiceImpl extends ServiceImpl<DuelMapper, Duel> implements Du
         // 复制死斗任务清单到影子计划（无清单的局维持旧行为）
         List<String> tasks = StrUtil.isBlank(duel.getDailyTasks()) ? null
                 : JSONUtil.toList(duel.getDailyTasks(), String.class);
+        // 影子计划天数：招募期加入=整局天数；组队打卡进行中加入=剩余天数（加入当天即第 1 天）
+        int planDays = duel.getTotalDays();
+        if (duel.getStatus() == DuelConstant.DUEL_STATUS_RUNNING) {
+            planDays = Math.max(1, (int) java.time.temporal.ChronoUnit.DAYS.between(
+                    LocalDate.now(CheckInConstant.BIZ_ZONE), duel.getEndDate()) + 1);
+        }
         CheckInPlan shadowPlan = checkInPlanService.createShadowPlan(
-                userId, duel.getDuelName(), duel.getTotalDays(), duel.getId(), tasks);
+                userId, duel.getDuelName(), planDays, duel.getId(), tasks);
         DuelMember existing = getMember(duel.getId(), userId);
         if (existing != null) {
             existing.setPlanId(shadowPlan.getId());
@@ -690,6 +723,13 @@ public class DuelServiceImpl extends ServiceImpl<DuelMapper, Duel> implements Du
         return duel.getMaxMembers() == null ? DuelConstant.MEMBER_MAX : duel.getMaxMembers();
     }
 
+    /**
+     * 组队打卡模式：无押金无奖池，进行中可自由进出
+     */
+    private boolean isTeamMode(Duel duel) {
+        return duel.getMode() != null && duel.getMode() == DuelConstant.DUEL_MODE_TEAM;
+    }
+
     private DuelMember getMember(Long duelId, Long userId) {
         return duelMemberMapper.selectOne(new LambdaQueryWrapper<DuelMember>()
                 .eq(DuelMember::getDuelId, duelId)
@@ -718,6 +758,7 @@ public class DuelServiceImpl extends ServiceImpl<DuelMapper, Duel> implements Du
 
         DuelVO vo = new DuelVO();
         vo.setId(aggDuel.getId());
+        vo.setMode(aggDuel.getMode());
         vo.setDuelName(aggDuel.getDuelName());
         vo.setDuelDesc(aggDuel.getDuelDesc());
         vo.setDailyTasks(StrUtil.isBlank(aggDuel.getDailyTasks()) ? null

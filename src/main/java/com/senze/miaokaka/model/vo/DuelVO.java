@@ -17,6 +17,11 @@ public class DuelVO implements Serializable {
 
     private Long id;
 
+    /**
+     * 玩法模式 (0:押金死斗, 1:组队打卡)
+     */
+    private Integer mode;
+
     private String duelName;
 
     private String duelDesc;

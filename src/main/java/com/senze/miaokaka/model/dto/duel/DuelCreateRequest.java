@@ -33,9 +33,15 @@ public class DuelCreateRequest implements Serializable {
     private List<String> dailyTasks;
 
     /**
-     * 每人押金（喵币）
+     * 玩法模式 (0:押金死斗, 1:组队打卡)；默认 0
      */
-    @NotNull(message = "押金不能为空")
+    @Min(value = 0, message = "玩法模式不合法")
+    @Max(value = 1, message = "玩法模式不合法")
+    private Integer mode = 0;
+
+    /**
+     * 每人押金（喵币）：押金死斗 100~5000 必填；组队打卡无押金不传（落库存 0）
+     */
     @Min(value = 100, message = "押金最低 100 喵币")
     @Max(value = 5000, message = "押金最高 5000 喵币")
     private Integer depositPerMember;

@@ -124,6 +124,17 @@ public class DuelSettlementServiceImpl extends ServiceImpl<DuelMapper, Duel>
                 .notIn(DuelMember::getStatus, DuelConstant.MEMBER_STATUS_QUIT,
                         DuelConstant.MEMBER_STATUS_REMOVED));
 
+        // 组队打卡：无押金无奖池——仅宽容通过待审凭证 + 成员落定，即完成结算
+        if (duel.getMode() != null && duel.getMode() == DuelConstant.DUEL_MODE_TEAM) {
+            for (DuelMember member : members) {
+                member.setCheckinDays(countConfirmedDays(member, duel));
+                duelMemberMapper.updateById(member);
+            }
+            memberSettled(members);
+            log.info("组队打卡 {} 结算完成（无押金，无奖池），{} 名成员落定", duelId, members.size());
+            return true;
+        }
+
         // 新口径：end_refund = floor(押金×D/T) − 已退（补齐舍入尾差）；
         // 罚没 = 押金 − 已退 − end_refund；奖池 = Σ罚没 + 被移除成员罚没池
         int confiscatedSum = 0;

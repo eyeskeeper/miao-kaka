@@ -7,6 +7,13 @@ package com.senze.miaokaka.constant;
  */
 public interface DuelConstant {
 
+    // region 玩法模式
+
+    int DUEL_MODE_DEPOSIT = 0;
+    int DUEL_MODE_TEAM = 1;
+
+    // endregion
+
     // region 死斗状态
 
     int DUEL_STATUS_RECRUITING = 0;

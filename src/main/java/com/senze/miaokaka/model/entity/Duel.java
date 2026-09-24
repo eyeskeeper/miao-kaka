@@ -28,6 +28,11 @@ public class Duel implements Serializable {
     private Long id;
 
     /**
+     * 玩法模式 (0:押金死斗, 1:组队打卡)
+     */
+    private Integer mode;
+
+    /**
      * 死斗名称
      */
     private String duelName;

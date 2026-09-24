@@ -25,6 +25,13 @@ public class DuelHallQueryRequest extends PageRequest {
     private String duelName;
 
     /**
+     * 玩法模式 (0:押金死斗, 1:组队打卡)；空=不限
+     */
+    @Min(value = 0, message = "玩法模式不合法")
+    @Max(value = 1, message = "玩法模式不合法")
+    private Integer mode;
+
+    /**
      * 类型 (0:自由加入, 1:审批加入)；空=不限
      */
     @Min(value = 0, message = "类型不合法")

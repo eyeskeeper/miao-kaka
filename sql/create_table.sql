@@ -159,13 +159,14 @@ create table `coin_transaction`
 create table `duel`
 (
     id                  bigint       not null auto_increment comment '死斗id' primary key,
+    mode                tinyint               default 0 not null comment '玩法模式 (0:押金死斗, 1:组队打卡)',
     duel_name           varchar(128) not null comment '死斗名称',
     duel_desc           varchar(512)          default null comment '死斗描述',
     daily_tasks         json                  default null comment '每日任务清单（JSON 数组字符串，AI 草稿/组长自定义；空=无任务清单）',
     leader_id           bigint       not null comment '组长id（创建者）',
     join_mode           tinyint               default 0 not null comment '加入模式 (0:自由加入, 1:审批加入)',
     hidden              tinyint               default 0 not null comment '是否隐藏 (0:公开, 1:隐藏；隐藏局不在招募大厅出现，仅可通过组号/邀请海报发现)',
-    deposit_per_member  int          not null comment '每人押金（喵币，100~5000）',
+    deposit_per_member  int          not null comment '每人押金（喵币，押金死斗 100~5000；组队打卡存 0）',
     total_days          int          not null comment '挑战天数（3~365）',
     start_date          date         not null comment '开始日期（北京时间，最早为明天）',
     end_date            date         not null comment '结束日期 = 开始日期 + total_days - 1',
@@ -302,3 +303,6 @@ alter table `duel` add column `daily_tasks` json default null comment '每日任
 -- 死斗组限制（2026-09-20 增补：组长规定人数上限 2~50、隐藏局不进招募大厅）
 alter table `duel` add column `max_members` int not null default 50 comment '人数上限（2~50，创建时组长确定；存量局默认 50）' after `member_count`;
 alter table `duel` add column `hidden` tinyint not null default 0 comment '是否隐藏 (0:公开, 1:隐藏；隐藏局不在招募大厅出现，仅可通过组号/邀请海报发现)' after `join_mode`;
+
+-- 玩法模式（2026-09-20 增补：0 押金死斗 / 1 组队打卡（无押金无奖池，进行中可进出））
+alter table `duel` add column `mode` tinyint not null default 0 comment '玩法模式 (0:押金死斗, 1:组队打卡)' after `id`;
