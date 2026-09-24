@@ -4,9 +4,15 @@ target/
 !**/src/main/**/target/
 !**/src/test/**/target/
 
+# 前端文件
+miaokaka-frontend
+
+# 本地配置
 application-local.yml
+
 .env
 data/
+
 ### STS ###
 .apt_generated
 .classpath
