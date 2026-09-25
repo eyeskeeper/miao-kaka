@@ -329,3 +329,52 @@ create table `user_item`
     unique key uk_user_item (user_id, item_code),
     index idx_user (user_id)
 ) comment='用户道具背包表' collate = utf8mb4_unicode_ci;
+
+-- 好友关系表（2026-09-24 增补：申请-同意制；同意时写入双向两行）
+create table `user_friend`
+(
+    id          bigint auto_increment comment '记录id' primary key,
+    user_id     bigint                             not null comment '发起人id',
+    friend_id   bigint                             not null comment '接受人id',
+    status      tinyint default 0                  not null comment '状态 (0:待同意, 1:已同意)',
+    agree_time  datetime                           default null comment '同意时间',
+    create_time datetime default current_timestamp not null comment '申请时间',
+    unique key uk_pair (user_id, friend_id),
+    index idx_friend (friend_id, status)
+) comment='好友关系表' collate = utf8mb4_unicode_ci;
+
+-- 打卡点赞表（好友点赞打卡记录，被赞者得小鱼干）
+create table `check_in_like`
+(
+    id          bigint auto_increment comment '点赞id' primary key,
+    record_id   bigint                             not null comment '被赞打卡记录id',
+    liker_id    bigint                             not null comment '点赞人id',
+    target_id   bigint                             not null comment '记录主人id（冗余）',
+    like_date   date                               not null comment '点赞日期（日限统计）',
+    create_time datetime default current_timestamp not null comment '点赞时间',
+    unique key uk_record_liker (record_id, liker_id),
+    index idx_target_date (target_id, like_date)
+) comment='打卡点赞表' collate = utf8mb4_unicode_ci;
+
+-- 计划模板表（模板市场：官方/用户公开模板，一键套用建计划）
+create table `plan_template`
+(
+    id            bigint       not null auto_increment comment '模板id' primary key,
+    creator_id    bigint       not null comment '创建者id（admin 创建即官方模板）',
+    template_name varchar(128) not null comment '模板名称',
+    template_desc varchar(512)          default null comment '模板描述',
+    plan_type     tinyint               default 0 not null comment '计划类型 (0:学习, 1:运动, 2:阅读, 3:其他)',
+    target_days   int                   default 21 not null comment '目标连续打卡天数',
+    daily_tasks   json                  default null comment '每日任务配置 (JSON数组)',
+    total_tasks   int                   default 1 not null comment '总任务数',
+    is_official   tinyint               default 0 not null comment '是否官方模板 (0:否, 1:是)',
+    use_count     int                   default 0 not null comment '被套用次数',
+    is_delete     tinyint               default 0 not null comment '是否删除',
+    create_time   datetime     default current_timestamp not null comment '创建时间',
+    update_time   datetime     default current_timestamp not null on update current_timestamp comment '更新时间',
+    index idx_official (is_official),
+    index idx_creator (creator_id)
+) comment='计划模板表' collate = utf8mb4_unicode_ci;
+
+-- 小鱼干（好友点赞获得，商城 1:1 兑积分）
+alter table `user` add column `dried_fish` int not null default 0 comment '小鱼干（好友点赞获得，1:1 兑积分）' after `total_points`;

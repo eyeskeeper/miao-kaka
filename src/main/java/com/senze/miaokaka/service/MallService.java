@@ -35,4 +35,11 @@ public interface MallService extends IService<UserItem> {
      * 消耗一张道具（条件更新 quantity>0，防负数）；无货返回 false
      */
     boolean consumeItem(Long userId, String itemCode);
+
+    /**
+     * 小鱼干兑积分（1:1，原子扣减 dried_fish，不足拒绝）
+     *
+     * @return 兑换后剩余小鱼干
+     */
+    int exchangeFish(Long userId, int fish);
 }

@@ -82,6 +82,11 @@ public class User implements Serializable {
     private Integer totalPoints;
 
     /**
+     * 小鱼干（好友点赞获得，1:1 兑积分）
+     */
+    private Integer driedFish;
+
+    /**
      * 喵币余额（押金货币，注册赠送1000）
      */
     private Integer miaoCoins;

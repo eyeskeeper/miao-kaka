@@ -11,6 +11,7 @@ import com.senze.miaokaka.model.entity.User;
 import com.senze.miaokaka.model.vo.PlanVO;
 import com.senze.miaokaka.model.vo.TaskToggleVO;
 import com.senze.miaokaka.service.CheckInPlanService;
+import com.senze.miaokaka.service.TemplateService;
 import com.senze.miaokaka.service.CheckInRecordService;
 import com.senze.miaokaka.service.UserService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -44,6 +45,9 @@ public class PlanController {
 
     @Resource
     private CheckInRecordService checkInRecordService;
+
+    @Resource
+    private TemplateService templateService;
 
     @Resource
     private UserService userService;
@@ -90,6 +94,14 @@ public class PlanController {
                                                  HttpServletRequest servletRequest) {
         User user = userService.getLoginUser(servletRequest);
         return ResultUtils.success(checkInRecordService.toggleTask(user.getId(), planId, request));
+    }
+
+    @PostMapping("/from-template")
+    @Operation(summary = "从模板一键建计划", description = "模板名称/描述/类型/天数/任务清单复制为新计划，模板使用量 +1")
+    public BaseResponse<PlanVO> fromTemplate(@Valid @RequestBody com.senze.miaokaka.model.dto.template.TemplateApplyRequest request,
+                                             HttpServletRequest servletRequest) {
+        User user = userService.getLoginUser(servletRequest);
+        return ResultUtils.success(templateService.applyToPlan(user.getId(), request.getTemplateId()));
     }
 
     @PostMapping("/cat/name")

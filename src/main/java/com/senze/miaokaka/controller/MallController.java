@@ -2,6 +2,7 @@ package com.senze.miaokaka.controller;
 
 import com.senze.miaokaka.common.BaseResponse;
 import com.senze.miaokaka.common.ResultUtils;
+import com.senze.miaokaka.model.dto.mall.FishExchangeRequest;
 import com.senze.miaokaka.model.dto.mall.MallBuyRequest;
 import com.senze.miaokaka.model.entity.User;
 import com.senze.miaokaka.model.vo.BagItemVO;
@@ -60,5 +61,13 @@ public class MallController {
                                              HttpServletRequest servletRequest) {
         User user = userService.getLoginUser(servletRequest);
         return ResultUtils.success(mallService.buy(user.getId(), request.getItemCode()));
+    }
+
+    @PostMapping("/exchange-fish")
+    @Operation(summary = "小鱼干兑积分", description = "好友点赞获得的小鱼干 1:1 兑换积分；原子扣减，余额不足拒绝")
+    public BaseResponse<Integer> exchangeFish(@Valid @RequestBody FishExchangeRequest request,
+                                              HttpServletRequest servletRequest) {
+        User user = userService.getLoginUser(servletRequest);
+        return ResultUtils.success(mallService.exchangeFish(user.getId(), request.getFish()));
     }
 }

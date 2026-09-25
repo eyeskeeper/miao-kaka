@@ -16,4 +16,14 @@ public interface NotificationConstant {
      * 打卡提醒
      */
     int TYPE_CHECKIN_REMIND = 2;
+
+    /**
+     * 好友申请
+     */
+    int TYPE_FRIEND_APPLY = 4;
+
+    /**
+     * 好友申请通过
+     */
+    int TYPE_FRIEND_AGREE = 5;
 }

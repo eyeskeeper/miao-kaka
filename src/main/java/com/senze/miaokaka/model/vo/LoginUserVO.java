@@ -35,6 +35,11 @@ public class LoginUserVO implements Serializable {
      */
     private Integer totalPoints;
 
+    /**
+     * 小鱼干（好友点赞获得）
+     */
+    private Integer driedFish;
+
     private Date createTime;
 
     private static final long serialVersionUID = 1L;

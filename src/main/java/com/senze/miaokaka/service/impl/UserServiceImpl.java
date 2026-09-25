@@ -110,6 +110,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
         vo.setUserRole(user.getUserRole());
         vo.setCurrentStreak(user.getCurrentStreak());
         vo.setTotalPoints(user.getTotalPoints());
+        vo.setDriedFish(user.getDriedFish());
         vo.setCreateTime(user.getCreateTime());
         return vo;
     }
@@ -290,6 +291,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
         vo.setUserRole(user.getUserRole());
         vo.setCurrentStreak(user.getCurrentStreak());
         vo.setTotalPoints(user.getTotalPoints());
+        vo.setDriedFish(user.getDriedFish());
         vo.setCreateTime(user.getCreateTime());
         return vo;
     }

@@ -6,31 +6,23 @@ import java.io.Serializable;
 import java.util.Date;
 
 /**
- * 管理端用户视图
+ * 收到的好友申请条目
  *
  * @author <a href="https://github.com/eyeskeeper">冉森</a>
  */
 @Data
-public class UserVO implements Serializable {
+public class FriendApplicationVO implements Serializable {
 
+    /**
+     * 申请记录id（同意/拒绝用）
+     */
     private Long id;
 
-    private String userAccount;
+    private Long userId;
 
     private String userName;
 
     private String userAvatar;
-
-    private String userRole;
-
-    private Integer currentStreak;
-
-    private Integer totalPoints;
-
-    /**
-     * 小鱼干（好友点赞获得）
-     */
-    private Integer driedFish;
 
     private Date createTime;
 

@@ -141,4 +141,24 @@ public class MallServiceImpl extends ServiceImpl<UserItemMapper, UserItem> imple
         User user = userMapper.selectById(userId);
         return user == null || user.getTotalPoints() == null ? 0 : user.getTotalPoints();
     }
+
+    @Override
+    public int exchangeFish(Long userId, int fish) {
+        // 原子扣小鱼干（余额不足直接失败），1:1 加积分
+        boolean deducted = userMapper.update(null, new LambdaUpdateWrapper<User>()
+                .eq(User::getId, userId)
+                .ge(User::getDriedFish, fish)
+                .setSql("dried_fish = dried_fish - " + fish)) > 0;
+        if (!deducted) {
+            throw new BusinessException(ErrorCode.OPERATION_ERROR, "小鱼干不足");
+        }
+        userMapper.update(null, new LambdaUpdateWrapper<User>()
+                .eq(User::getId, userId)
+                .setSql("total_points = total_points + " + fish));
+        // 两种数值都变：逐出用户缓存
+        cacheService.evict(CacheService.keyUser(userId));
+        log.info("用户 {} 用 {} 条小鱼干兑换 {} 积分", userId, fish, fish);
+        User user = userMapper.selectById(userId);
+        return user == null || user.getDriedFish() == null ? 0 : user.getDriedFish();
+    }
 }
