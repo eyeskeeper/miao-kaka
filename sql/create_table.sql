@@ -378,3 +378,13 @@ create table `plan_template`
 
 -- 小鱼干（好友点赞获得，商城 1:1 兑积分）
 alter table `user` add column `dried_fish` int not null default 0 comment '小鱼干（好友点赞获得，1:1 兑积分）' after `total_points`;
+
+-- 系统公告表（2026-09-24 增补：admin 发布后广播复制到 user_notification）
+create table `announcement`
+(
+    id         bigint auto_increment comment '公告id' primary key,
+    title      varchar(64)                        not null comment '标题',
+    content    varchar(512)                       not null comment '正文',
+    creator_id bigint                             not null comment '发布人id（admin）',
+    create_time datetime default current_timestamp not null comment '发布时间'
+) comment='系统公告表' collate = utf8mb4_unicode_ci;

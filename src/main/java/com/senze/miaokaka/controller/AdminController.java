@@ -5,10 +5,14 @@ import com.senze.miaokaka.common.BaseResponse;
 import com.senze.miaokaka.common.ResultUtils;
 import com.senze.miaokaka.model.dto.admin.AdminUserCreateRequest;
 import com.senze.miaokaka.model.dto.admin.AdminUserUpdateRequest;
+import com.senze.miaokaka.model.dto.admin.AnnouncementCreateRequest;
 import com.senze.miaokaka.model.dto.admin.UserBanRequest;
 import com.senze.miaokaka.model.dto.admin.UserPageQueryRequest;
 import com.senze.miaokaka.model.entity.User;
+import com.senze.miaokaka.model.vo.AdminStatsVO;
+import com.senze.miaokaka.model.vo.AnnouncementVO;
 import com.senze.miaokaka.model.vo.UserVO;
+import com.senze.miaokaka.service.AdminService;
 import com.senze.miaokaka.service.UserService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -23,6 +27,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
@@ -39,6 +44,9 @@ public class AdminController {
 
     @Resource
     private UserService userService;
+
+    @Resource
+    private AdminService adminService;
 
     @PostMapping("/user")
     @Operation(summary = "建号", description = "运营手动开号，赠 1000 喵币与注册一致")
@@ -80,5 +88,28 @@ public class AdminController {
     @Operation(summary = "封禁/解封用户", description = "封禁后逐出登录态缓存，立即生效")
     public BaseResponse<Boolean> ban(@Valid @RequestBody UserBanRequest request) {
         return ResultUtils.success(userService.banUser(request));
+    }
+
+    @PostMapping("/announcement")
+    @Operation(summary = "发布公告", description = "广播复制一条系统公告（type=3）到每个未删除用户的通知中心")
+    public BaseResponse<java.util.Map<String, Object>> createAnnouncement(
+            @Valid @RequestBody AnnouncementCreateRequest request,
+            HttpServletRequest servletRequest) {
+        User operator = userService.getLoginUser(servletRequest);
+        return ResultUtils.success(adminService.createAnnouncement(operator.getId(), request));
+    }
+
+    @GetMapping("/announcements")
+    @Operation(summary = "公告历史", description = "最新在前，每页最多 50 条")
+    public BaseResponse<java.util.List<AnnouncementVO>> announcements(
+            @RequestParam(defaultValue = "1") long current,
+            @RequestParam(defaultValue = "20") long pageSize) {
+        return ResultUtils.success(adminService.announcements(current, pageSize));
+    }
+
+    @GetMapping("/stats")
+    @Operation(summary = "数据看板", description = "用户/打卡量（今日·昨日·本周·累计，含 DAU 去重人数）/局数统计 + 近 7 天趋势")
+    public BaseResponse<AdminStatsVO> stats() {
+        return ResultUtils.success(adminService.stats());
     }
 }

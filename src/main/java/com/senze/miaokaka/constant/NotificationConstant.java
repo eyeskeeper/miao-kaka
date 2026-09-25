@@ -18,6 +18,11 @@ public interface NotificationConstant {
     int TYPE_CHECKIN_REMIND = 2;
 
     /**
+     * 系统公告（admin 广播）
+     */
+    int TYPE_ANNOUNCEMENT = 3;
+
+    /**
      * 好友申请
      */
     int TYPE_FRIEND_APPLY = 4;
