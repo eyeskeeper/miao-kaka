@@ -15,6 +15,11 @@ public class TemplateVO implements Serializable {
 
     private Long id;
 
+    /**
+     * 创建者id
+     */
+    private Long creatorId;
+
     private String templateName;
 
     private String templateDesc;

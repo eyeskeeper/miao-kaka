@@ -65,6 +65,7 @@ public class TemplateServiceImpl extends ServiceImpl<PlanTemplateMapper, PlanTem
         voPage.setRecords(rows.stream().map(t -> {
             TemplateVO vo = new TemplateVO();
             vo.setId(t.getId());
+            vo.setCreatorId(t.getCreatorId());
             vo.setTemplateName(t.getTemplateName());
             vo.setTemplateDesc(t.getTemplateDesc());
             vo.setPlanType(t.getPlanType());
