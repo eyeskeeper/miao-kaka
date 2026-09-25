@@ -35,6 +35,11 @@ public class AiAssistantServiceImpl implements AiAssistantService {
     private static final long ENCOURAGE_TIMEOUT_SECONDS = 4;
 
     /**
+     * 周报总结超时：非主流程关键路径，稍长
+     */
+    private static final long WEEKLY_TIMEOUT_SECONDS = 8;
+
+    /**
      * 虚拟线程执行 AI 调用（Java 21），主线程限时等待
      */
     private final ExecutorService aiExecutor = Executors.newVirtualThreadPerTaskExecutor();
@@ -77,6 +82,26 @@ public class AiAssistantServiceImpl implements AiAssistantService {
             future.cancel(true);
             log.warn("AI 鼓励语生成超时/失败，降级为本地语录：{}", e.getMessage());
             return NameLibraryConstant.randomFallbackEncouragement();
+        }
+    }
+
+    @Override
+    public String generateWeeklySummary(String statsSummary) {
+        if (StrUtil.isBlank(statsSummary)) {
+            return "";
+        }
+        Future<String> future = aiExecutor.submit(() -> chatClient.prompt()
+                .system(SchemeDesignPromptConstant.WEEKLY_SUMMARY_SYSTEM_PROMPT)
+                .user(statsSummary)
+                .call()
+                .content());
+        try {
+            String text = future.get(WEEKLY_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+            return text == null ? "" : text.trim();
+        } catch (Exception e) {
+            future.cancel(true);
+            log.warn("AI 周报总结生成超时/失败，降级为模板文案：{}", e.getMessage());
+            return "";
         }
     }
 

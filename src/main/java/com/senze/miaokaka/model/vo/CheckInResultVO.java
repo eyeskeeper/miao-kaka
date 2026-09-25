@@ -4,6 +4,7 @@ import lombok.Data;
 
 import java.io.Serializable;
 import java.time.LocalDate;
+import java.util.List;
 
 /**
  * 打卡结果视图：事件过程 + 成长结算 + 猫口吻鼓励语
@@ -97,6 +98,16 @@ public class CheckInResultVO implements Serializable {
      * 猫口吻鼓励语（AI 生成，超时降级本地语录）
      */
     private String encouragement;
+
+    /**
+     * 本次新解锁的徽章名称（无则空列表）
+     */
+    private List<String> unlockedBadges;
+
+    /**
+     * 是否自动消耗了双倍经验卡（本次经验 ×2）
+     */
+    private Boolean doubleExp;
 
     private static final long serialVersionUID = 1L;
 }

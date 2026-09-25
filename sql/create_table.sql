@@ -306,3 +306,26 @@ alter table `duel` add column `hidden` tinyint not null default 0 comment '是�
 
 -- 玩法模式（2026-09-20 增补：0 押金死斗 / 1 组队打卡（无押金无奖池，进行中可进出））
 alter table `duel` add column `mode` tinyint not null default 0 comment '玩法模式 (0:押金死斗, 1:组队打卡)' after `id`;
+
+-- 成就徽章表（2026-09-24 增补：code 定义于 AchievementConstant，一人一徽唯一）
+create table `user_achievement`
+(
+    id          bigint auto_increment comment '记录id' primary key,
+    user_id     bigint                             not null comment '用户id',
+    code        varchar(32)                        not null comment '徽章编码（如 FIRST_CHECKIN/STREAK_7）',
+    unlocked_at datetime default current_timestamp not null comment '解锁时间',
+    unique key uk_user_code (user_id, code),
+    index idx_user (user_id)
+) comment='用户成就徽章表' collate = utf8mb4_unicode_ci;
+
+-- 积分商城背包表（2026-09-24 增补：item_code 定义于 MallConstant）
+create table `user_item`
+(
+    id          bigint auto_increment comment '记录id' primary key,
+    user_id     bigint                             not null comment '用户id',
+    item_code   varchar(32)                        not null comment '道具编码（如 MAKEUP_VOUCHER/DOUBLE_EXP）',
+    quantity    int      default 0                 not null comment '持有数量',
+    update_time datetime default current_timestamp not null on update current_timestamp comment '更新时间',
+    unique key uk_user_item (user_id, item_code),
+    index idx_user (user_id)
+) comment='用户道具背包表' collate = utf8mb4_unicode_ci;

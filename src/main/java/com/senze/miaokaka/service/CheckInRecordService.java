@@ -24,12 +24,22 @@ public interface CheckInRecordService extends IService<CheckInRecord> {
     /**
      * 补卡：扣积分、自然月限次、恢复连击；不触发事件
      */
-    MakeupResultVO makeup(Long userId, Long planId, String date);
+    MakeupResultVO makeup(Long userId, Long planId, String date, boolean useVoucher);
 
     /**
      * 某计划某月打卡日历
      */
     CheckInCalendarVO calendar(Long userId, Long planId, String month);
+
+    /**
+     * 年度打卡热力图（正常+补卡，按日计数）
+     */
+    java.util.List<com.senze.miaokaka.model.vo.HeatmapDayVO> heatmap(Long userId, Integer year);
+
+    /**
+     * 本周统计周报（周一~今天），含 AI 总结
+     */
+    com.senze.miaokaka.model.vo.WeeklyStatsVO weekly(Long userId);
 
     /**
      * 死斗凭证审核通过后的结算入口：记录置为正常、重算连击并触发一次事件结算。

@@ -27,5 +27,10 @@ public class CheckInMakeupRequest implements Serializable {
     @Pattern(regexp = "^\\d{4}-\\d{2}-\\d{2}$", message = "日期格式应为 yyyy-MM-dd")
     private String date;
 
+    /**
+     * 使用补卡券（持有券则免扣积分）
+     */
+    private Boolean useVoucher;
+
     private static final long serialVersionUID = 1L;
 }

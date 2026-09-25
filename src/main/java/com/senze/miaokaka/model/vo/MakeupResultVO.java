@@ -4,6 +4,7 @@ import lombok.Data;
 
 import java.io.Serializable;
 import java.time.LocalDate;
+import java.util.List;
 
 /**
  * 补卡结果视图
@@ -34,6 +35,16 @@ public class MakeupResultVO implements Serializable {
     private Integer currentStreak;
 
     private Integer maxStreak;
+
+    /**
+     * 本次新解锁的徽章名称（无则空列表）
+     */
+    private List<String> unlockedBadges;
+
+    /**
+     * 是否使用了补卡券（免扣积分）
+     */
+    private Boolean voucherUsed;
 
     private static final long serialVersionUID = 1L;
 }

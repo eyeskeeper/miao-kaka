@@ -11,4 +11,9 @@ public interface NotificationConstant {
      * 被移除出死斗
      */
     int TYPE_REMOVED_FROM_DUEL = 1;
+
+    /**
+     * 打卡提醒
+     */
+    int TYPE_CHECKIN_REMIND = 2;
 }

@@ -4,9 +4,11 @@ import cn.hutool.core.util.StrUtil;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.spring.service.impl.ServiceImpl;
 import com.senze.miaokaka.common.ErrorCode;
+import com.senze.miaokaka.constant.AchievementConstant;
 import com.senze.miaokaka.constant.CheckInConstant;
 import com.senze.miaokaka.constant.DuelConstant;
 import com.senze.miaokaka.constant.GameConstants;
+import com.senze.miaokaka.constant.MallConstant;
 import com.senze.miaokaka.constant.NameLibraryConstant;
 import com.senze.miaokaka.exception.BusinessException;
 import com.senze.miaokaka.exception.ThrowUtils;
@@ -23,11 +25,13 @@ import com.senze.miaokaka.model.vo.CheckInCalendarVO;
 import com.senze.miaokaka.model.vo.CheckInResultVO;
 import com.senze.miaokaka.model.vo.MakeupResultVO;
 import com.senze.miaokaka.model.vo.TaskToggleVO;
+import com.senze.miaokaka.service.AchievementService;
 import com.senze.miaokaka.service.AiAssistantService;
 import com.senze.miaokaka.service.CacheService;
 import com.senze.miaokaka.service.CatSpiritService;
 import com.senze.miaokaka.service.CheckInPlanService;
 import com.senze.miaokaka.service.CheckInRecordService;
+import com.senze.miaokaka.service.MallService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DuplicateKeyException;
@@ -37,8 +41,10 @@ import org.springframework.transaction.support.TransactionTemplate;
 import java.time.LocalDate;
 import java.time.YearMonth;
 import java.time.format.DateTimeParseException;
+import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.stream.Collectors;
@@ -65,6 +71,10 @@ public class CheckInRecordServiceImpl extends ServiceImpl<CheckInRecordMapper, C
     private final UserMapper userMapper;
 
     private final AiAssistantService aiAssistantService;
+
+    private final AchievementService achievementService;
+
+    private final MallService mallService;
 
     private final TransactionTemplate transactionTemplate;
 
@@ -277,6 +287,14 @@ public class CheckInRecordServiceImpl extends ServiceImpl<CheckInRecordMapper, C
         // 1. 事件：1~70 攻击 / 71~95 属性提升 / 96~100 暴击
         int expGained = GameConstants.EXP_PER_CHECK_IN;
         int pointsEarned = GameConstants.POINTS_PER_CHECK_IN;
+
+        // 双倍经验卡：有则自动消耗一张，本次经验翻倍
+        boolean doubleExp = mallService.consumeItem(user.getId(), MallConstant.ITEM_DOUBLE_EXP);
+        if (doubleExp) {
+            expGained *= 2;
+        }
+        vo.setDoubleExp(doubleExp);
+
         int roll = ThreadLocalRandom.current().nextInt(1, 101);
         if (roll <= GameConstants.EVENT_ATTACK_MAX || roll > GameConstants.EVENT_STAT_MAX) {
             EventReward reward = resolveAttack(cat, plan.getCurrentStreak(),
@@ -330,6 +348,9 @@ public class CheckInRecordServiceImpl extends ServiceImpl<CheckInRecordMapper, C
         plan.setCompletedTasks(0);
 
         checkInPlanMapper.updateById(plan);
+
+        // 7. 成就徽章评估（新解锁名单随打卡结果返回）
+        vo.setUnlockedBadges(achievementService.evaluateCheckInBadges(user, plan, cat));
     }
 
     /**
@@ -415,17 +436,18 @@ public class CheckInRecordServiceImpl extends ServiceImpl<CheckInRecordMapper, C
     // region 补卡
 
     @Override
-    public MakeupResultVO makeup(Long userId, Long planId, String date) {
+    public MakeupResultVO makeup(Long userId, Long planId, String date, boolean useVoucherFlag) {
         LocalDate makeupDate;
         try {
             makeupDate = LocalDate.parse(date);
         } catch (DateTimeParseException e) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR, "日期格式应为 yyyy-MM-dd");
         }
-        return transactionTemplate.execute(status -> doMakeupInTx(userId, planId, makeupDate));
+        boolean fv = useVoucherFlag;
+        return transactionTemplate.execute(status -> doMakeupInTx(userId, planId, makeupDate, fv));
     }
 
-    private MakeupResultVO doMakeupInTx(Long userId, Long planId, LocalDate makeupDate) {
+    private MakeupResultVO doMakeupInTx(Long userId, Long planId, LocalDate makeupDate, boolean useVoucherFlag) {
         User user = userMapper.selectById(userId);
         CheckInPlan plan = checkInPlanService.getOwnedPlan(userId, planId);
         // 影子计划通道封闭：死斗缺卡直接按比例没收，不允许补卡
@@ -448,13 +470,18 @@ public class CheckInRecordServiceImpl extends ServiceImpl<CheckInRecordMapper, C
                 .le(CheckInRecord::getCheckInDate, makeupDate.withDayOfMonth(makeupDate.lengthOfMonth())));
         ThrowUtils.throwIf(used >= GameConstants.MAKEUP_MONTHLY_LIMIT,
                 ErrorCode.OPERATION_ERROR, "本月补卡次数已用完（每月 " + GameConstants.MAKEUP_MONTHLY_LIMIT + " 次）");
-        ThrowUtils.throwIf(user.getTotalPoints() < GameConstants.MAKEUP_COST,
-                ErrorCode.OPERATION_ERROR, "积分不足，补卡需要 " + GameConstants.MAKEUP_COST + " 积分");
+        // 补卡券：使用则免扣积分（条件更新消耗，无券走积分扣减）
+        boolean voucherUsed = useVoucherFlag
+                && mallService.consumeItem(userId, MallConstant.ITEM_MAKEUP_VOUCHER);
+        if (!voucherUsed) {
+            ThrowUtils.throwIf(user.getTotalPoints() < GameConstants.MAKEUP_COST,
+                    ErrorCode.OPERATION_ERROR, "积分不足，补卡需要 " + GameConstants.MAKEUP_COST + " 积分");
 
-        // 扣积分 + 落补卡记录
-        user.setTotalPoints(user.getTotalPoints() - GameConstants.MAKEUP_COST);
-        userMapper.updateById(user);
-        cacheService.evict(CacheService.keyUser(userId));
+            // 扣积分 + 落补卡记录
+            user.setTotalPoints(user.getTotalPoints() - GameConstants.MAKEUP_COST);
+            userMapper.updateById(user);
+            cacheService.evict(CacheService.keyUser(userId));
+        }
         CheckInRecord record = new CheckInRecord();
         record.setUserId(userId);
         record.setPlanId(planId);
@@ -469,10 +496,15 @@ public class CheckInRecordServiceImpl extends ServiceImpl<CheckInRecordMapper, C
 
         MakeupResultVO vo = new MakeupResultVO();
         vo.setCheckInDate(makeupDate);
-        vo.setPointsCost(GameConstants.MAKEUP_COST);
+        vo.setPointsCost(voucherUsed ? 0 : GameConstants.MAKEUP_COST);
+        vo.setVoucherUsed(voucherUsed);
         vo.setTotalPoints(user.getTotalPoints());
         vo.setCurrentStreak(plan.getCurrentStreak());
         vo.setMaxStreak(plan.getMaxStreak());
+        // 成就：首次补卡
+        if (achievementService.evaluateMakeupBadge(userId)) {
+            vo.setUnlockedBadges(List.of(AchievementConstant.nameOf(AchievementConstant.MAKEUP_FIRST)));
+        }
         return vo;
     }
 
@@ -537,6 +569,113 @@ public class CheckInRecordServiceImpl extends ServiceImpl<CheckInRecordMapper, C
     // endregion
 
     // region 私有工具
+
+    @Override
+    public java.util.List<com.senze.miaokaka.model.vo.HeatmapDayVO> heatmap(Long userId, Integer year) {
+        int y = year == null ? LocalDate.now(CheckInConstant.BIZ_ZONE).getYear() : year;
+        LocalDate start = LocalDate.of(y, 1, 1);
+        LocalDate end = start.withDayOfYear(start.lengthOfYear());
+        List<CheckInRecord> records = list(new LambdaQueryWrapper<CheckInRecord>()
+                .eq(CheckInRecord::getUserId, userId)
+                .in(CheckInRecord::getStatus, CheckInConstant.RECORD_STATUS_NORMAL,
+                        CheckInConstant.RECORD_STATUS_MAKEUP)
+                .ge(CheckInRecord::getCheckInDate, start)
+                .le(CheckInRecord::getCheckInDate, end));
+        Map<LocalDate, Long> byDate = records.stream()
+                .collect(Collectors.groupingBy(CheckInRecord::getCheckInDate, Collectors.counting()));
+        java.util.List<com.senze.miaokaka.model.vo.HeatmapDayVO> days = new ArrayList<>();
+        for (LocalDate d = start; !d.isAfter(end); d = d.plusDays(1)) {
+            com.senze.miaokaka.model.vo.HeatmapDayVO vo = new com.senze.miaokaka.model.vo.HeatmapDayVO();
+            vo.setDate(d);
+            vo.setCount(byDate.getOrDefault(d, 0L).intValue());
+            days.add(vo);
+        }
+        return days;
+    }
+
+    @Override
+    public com.senze.miaokaka.model.vo.WeeklyStatsVO weekly(Long userId) {
+        LocalDate today = LocalDate.now(CheckInConstant.BIZ_ZONE);
+        LocalDate weekStart = today.with(java.time.DayOfWeek.MONDAY);
+        LocalDate weekEnd = weekStart.plusDays(6);
+        LocalDate lastStart = weekStart.minusDays(7);
+
+        User user = userMapper.selectById(userId);
+        com.senze.miaokaka.model.vo.WeeklyStatsVO vo = new com.senze.miaokaka.model.vo.WeeklyStatsVO();
+        vo.setWeekStart(weekStart);
+        vo.setWeekEnd(weekEnd);
+
+        // 本周每日计数（截至今天，正常+补卡）
+        List<CheckInRecord> weekRecords = list(new LambdaQueryWrapper<CheckInRecord>()
+                .eq(CheckInRecord::getUserId, userId)
+                .in(CheckInRecord::getStatus, CheckInConstant.RECORD_STATUS_NORMAL,
+                        CheckInConstant.RECORD_STATUS_MAKEUP)
+                .ge(CheckInRecord::getCheckInDate, weekStart)
+                .le(CheckInRecord::getCheckInDate, today));
+        Map<LocalDate, Long> perDayMap = weekRecords.stream()
+                .collect(Collectors.groupingBy(CheckInRecord::getCheckInDate, Collectors.counting()));
+        java.util.List<com.senze.miaokaka.model.vo.HeatmapDayVO> perDay = new ArrayList<>();
+        for (LocalDate d = weekStart; !d.isAfter(today); d = d.plusDays(1)) {
+            com.senze.miaokaka.model.vo.HeatmapDayVO day = new com.senze.miaokaka.model.vo.HeatmapDayVO();
+            day.setDate(d);
+            day.setCount(perDayMap.getOrDefault(d, 0L).intValue());
+            perDay.add(day);
+        }
+        vo.setPerDay(perDay);
+        vo.setTotalCheckins(weekRecords.size());
+
+        // 上周总数对比
+        long lastWeekTotal = count(new LambdaQueryWrapper<CheckInRecord>()
+                .eq(CheckInRecord::getUserId, userId)
+                .in(CheckInRecord::getStatus, CheckInConstant.RECORD_STATUS_NORMAL,
+                        CheckInConstant.RECORD_STATUS_MAKEUP)
+                .ge(CheckInRecord::getCheckInDate, lastStart)
+                .le(CheckInRecord::getCheckInDate, weekStart.minusDays(1)));
+        vo.setLastWeekTotal((int) lastWeekTotal);
+
+        // 进行中计划的本周完成天数 + 最强计划连击
+        List<CheckInPlan> activePlans = checkInPlanMapper.selectList(new LambdaQueryWrapper<CheckInPlan>()
+                .eq(CheckInPlan::getUserId, userId)
+                .eq(CheckInPlan::getStatus, CheckInConstant.PLAN_STATUS_ACTIVE));
+        java.util.List<com.senze.miaokaka.model.vo.WeeklyStatsVO.PlanWeekVO> perPlan = new ArrayList<>();
+        int bestPlanStreak = 0;
+        for (CheckInPlan plan : activePlans) {
+            com.senze.miaokaka.model.vo.WeeklyStatsVO.PlanWeekVO pw = new com.senze.miaokaka.model.vo.WeeklyStatsVO.PlanWeekVO();
+            pw.setPlanId(plan.getId());
+            pw.setPlanName(plan.getPlanName());
+            pw.setDays(Math.toIntExact(count(new LambdaQueryWrapper<CheckInRecord>()
+                    .eq(CheckInRecord::getPlanId, plan.getId())
+                    .in(CheckInRecord::getStatus, CheckInConstant.RECORD_STATUS_NORMAL,
+                            CheckInConstant.RECORD_STATUS_MAKEUP)
+                    .ge(CheckInRecord::getCheckInDate, weekStart)
+                    .le(CheckInRecord::getCheckInDate, today))));
+            perPlan.add(pw);
+            if (plan.getMaxStreak() != null && plan.getMaxStreak() > bestPlanStreak) {
+                bestPlanStreak = plan.getMaxStreak();
+            }
+        }
+        vo.setPerPlan(perPlan);
+        vo.setBestPlanStreak(bestPlanStreak);
+        vo.setCurrentFullStreak(user.getCurrentStreak() == null ? 0 : user.getCurrentStreak());
+
+        // AI 总结（失败降级模板文案）
+        String planDesc = perPlan.stream()
+                .map(pw -> pw.getPlanName() + " " + pw.getDays() + " 天")
+                .collect(Collectors.joining("、"));
+        String statsText = String.format(
+                "本周打卡 %d 次（上周 %d 次）；进行中计划 %d 个（%s）；当前全勤连击 %d 天，最强计划连击 %d 天",
+                vo.getTotalCheckins(), vo.getLastWeekTotal(), activePlans.size(), planDesc,
+                vo.getCurrentFullStreak(), vo.getBestPlanStreak());
+        String ai = aiAssistantService.generateWeeklySummary(statsText);
+        vo.setAiSummary(StrUtil.isBlank(ai)
+                ? String.format("本周共打卡 %d 次，%s。继续加油，喵喵陪着你！",
+                        vo.getTotalCheckins(),
+                        vo.getTotalCheckins() >= vo.getLastWeekTotal()
+                                ? "比上周多 " + (vo.getTotalCheckins() - vo.getLastWeekTotal()) + " 次"
+                                : "比上周少 " + (vo.getLastWeekTotal() - vo.getTotalCheckins()) + " 次")
+                : ai);
+        return vo;
+    }
 
     private boolean existsRecord(Long userId, Long planId, LocalDate date) {
         return baseMapper.exists(new LambdaQueryWrapper<CheckInRecord>()
