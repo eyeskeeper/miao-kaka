@@ -391,6 +391,9 @@ public class FriendServiceImpl extends ServiceImpl<UserFriendMapper, UserFriend>
         ThrowUtils.throwIf(userId.equals(targetUserId), ErrorCode.PARAMS_ERROR, "不能拉黑自己");
         User target = userMapper.selectById(targetUserId);
         ThrowUtils.throwIf(target == null, ErrorCode.NOT_FOUND_ERROR, "用户不存在");
+        // 黑名单数量上限（新拉黑才占名额；重复拉黑幂等不占）
+        ThrowUtils.throwIf(ownedBlockCount(userId) >= GameConstants.BLOCK_MAX,
+                ErrorCode.OPERATION_ERROR, "黑名单已满（" + GameConstants.BLOCK_MAX + "），请先解除部分拉黑");
         // 解除双向好友关系（陌生人拉黑也允许，用于防骚扰）
         userFriendMapper.delete(new LambdaQueryWrapper<UserFriend>()
                 .eq(UserFriend::getUserId, userId).eq(UserFriend::getFriendId, targetUserId));
@@ -505,9 +508,17 @@ public class FriendServiceImpl extends ServiceImpl<UserFriendMapper, UserFriend>
      * 黑名单判定：a 是否拉黑了 b（单向即成立）
      */
     private boolean isBlocked(Long blockerId, Long blockedId) {
-        return userBlockMapper.selectCount(new LambdaQueryWrapper<com.senze.miaokaka.model.entity.UserBlock>()
-                .eq(com.senze.miaokaka.model.entity.UserBlock::getBlockerId, blockerId)
-                .eq(com.senze.miaokaka.model.entity.UserBlock::getBlockedId, blockedId)) > 0;
+        return userBlockMapper.selectCount(new LambdaQueryWrapper<UserBlock>()
+                .eq(UserBlock::getBlockerId, blockerId)
+                .eq(UserBlock::getBlockedId, blockedId)) > 0;
+    }
+
+    /**
+     * 我当前持有的黑名单名额数（新拉黑才计入）
+     */
+    private long ownedBlockCount(Long userId) {
+        return userBlockMapper.selectCount(new LambdaQueryWrapper<UserBlock>()
+                .eq(UserBlock::getBlockerId, userId));
     }
 
     private List<Long> friendIdsOf(Long userId) {

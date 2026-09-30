@@ -68,6 +68,11 @@ public interface GameConstants {
      */
     int FRIEND_MAX = 500;
 
+    /**
+     * 黑名单数量上限（每人，防拉黑列表被当私刑工具滥用）
+     */
+    int BLOCK_MAX = 20;
+
     // endregion
 
     // region 猫初始属性
