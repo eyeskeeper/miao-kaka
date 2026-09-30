@@ -6,6 +6,7 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.spring.service.impl.ServiceImpl;
 import com.senze.miaokaka.constant.CheckInConstant;
 import com.senze.miaokaka.constant.FriendConstant;
+import com.senze.miaokaka.constant.GameConstants;
 import com.senze.miaokaka.constant.NotificationConstant;
 import com.senze.miaokaka.common.ErrorCode;
 import com.senze.miaokaka.exception.BusinessException;
@@ -14,6 +15,7 @@ import com.senze.miaokaka.mapper.CheckInLikeMapper;
 import com.senze.miaokaka.mapper.CheckInPlanMapper;
 import com.senze.miaokaka.mapper.CheckInRecordMapper;
 import com.senze.miaokaka.mapper.CatSpiritMapper;
+import com.senze.miaokaka.mapper.UserBlockMapper;
 import com.senze.miaokaka.mapper.UserFriendMapper;
 import com.senze.miaokaka.mapper.UserMapper;
 import com.senze.miaokaka.model.entity.CatSpirit;
@@ -21,7 +23,9 @@ import com.senze.miaokaka.model.entity.CheckInLike;
 import com.senze.miaokaka.model.entity.CheckInPlan;
 import com.senze.miaokaka.model.entity.CheckInRecord;
 import com.senze.miaokaka.model.entity.User;
+import com.senze.miaokaka.model.entity.UserBlock;
 import com.senze.miaokaka.model.entity.UserFriend;
+import com.senze.miaokaka.model.vo.BlockedUserVO;
 import com.senze.miaokaka.model.vo.CheckInCalendarVO;
 import com.senze.miaokaka.model.vo.FriendApplicationVO;
 import com.senze.miaokaka.model.vo.FriendCatVO;
@@ -37,6 +41,7 @@ import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDate;
+import java.util.Date;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
@@ -69,6 +74,8 @@ public class FriendServiceImpl extends ServiceImpl<UserFriendMapper, UserFriend>
 
     private final CheckInLikeMapper checkInLikeMapper;
 
+    private final UserBlockMapper userBlockMapper;
+
     private final NotificationService notificationService;
 
     // region 好友关系
@@ -78,6 +85,14 @@ public class FriendServiceImpl extends ServiceImpl<UserFriendMapper, UserFriend>
         ThrowUtils.throwIf(userId.equals(targetUserId), ErrorCode.PARAMS_ERROR, "不能添加自己为好友");
         User target = userMapper.selectById(targetUserId);
         ThrowUtils.throwIf(target == null, ErrorCode.NOT_FOUND_ERROR, "用户不存在");
+        // 黑名单双向拦截（文案模糊化，不透露被拉黑）
+        ThrowUtils.throwIf(isBlocked(targetUserId, userId), ErrorCode.OPERATION_ERROR, "无法添加该用户");
+        ThrowUtils.throwIf(isBlocked(userId, targetUserId), ErrorCode.OPERATION_ERROR, "已拉黑该用户，请先解除拉黑");
+        // 好友上限：我方满员不可发起；对方满员发了也批不了，直接拦截
+        ThrowUtils.throwIf(friendCount(userId) >= GameConstants.FRIEND_MAX,
+                ErrorCode.OPERATION_ERROR, "你的好友数已达上限（" + GameConstants.FRIEND_MAX + "）");
+        ThrowUtils.throwIf(friendCount(targetUserId) >= GameConstants.FRIEND_MAX,
+                ErrorCode.OPERATION_ERROR, "对方好友数已达上限");
         if (isFriend(userId, targetUserId)) {
             throw new BusinessException(ErrorCode.OPERATION_ERROR, "你们已经是好友了");
         }
@@ -128,6 +143,13 @@ public class FriendServiceImpl extends ServiceImpl<UserFriendMapper, UserFriend>
                 ErrorCode.NOT_FOUND_ERROR, "申请不存在");
         ThrowUtils.throwIf(row.getStatus() != FriendConstant.STATUS_PENDING,
                 ErrorCode.OPERATION_ERROR, "该申请已处理过");
+        // 防御：拉黑后申请行已被清理，此处再拦黑名单与对方好友上限
+        ThrowUtils.throwIf(isBlocked(userId, row.getUserId()),
+                ErrorCode.OPERATION_ERROR, "该申请不可通过");
+        ThrowUtils.throwIf(friendCount(userId) >= GameConstants.FRIEND_MAX,
+                ErrorCode.OPERATION_ERROR, "你的好友数已达上限");
+        ThrowUtils.throwIf(friendCount(row.getUserId()) >= GameConstants.FRIEND_MAX,
+                ErrorCode.OPERATION_ERROR, "对方好友数已达上限");
         row.setStatus(FriendConstant.STATUS_AGREED);
         row.setAgreeTime(new java.util.Date());
         userFriendMapper.updateById(row);
@@ -191,7 +213,7 @@ public class FriendServiceImpl extends ServiceImpl<UserFriendMapper, UserFriend>
     }
 
     @Override
-    public FriendSearchVO search(String keyword) {
+    public FriendSearchVO search(String keyword, Long viewerId) {
         ThrowUtils.throwIf(com.baomidou.mybatisplus.core.toolkit.StringUtils.isBlank(keyword),
                 ErrorCode.PARAMS_ERROR, "请输入账号或用户 id");
         User user = null;
@@ -204,6 +226,9 @@ public class FriendServiceImpl extends ServiceImpl<UserFriendMapper, UserFriend>
                     .last("limit 1"));
         }
         ThrowUtils.throwIf(user == null, ErrorCode.NOT_FOUND_ERROR, "用户不存在");
+        // 黑名单过滤：我拉黑的与拉黑我的均不可见（隐身）
+        ThrowUtils.throwIf(isBlocked(viewerId, user.getId()) || isBlocked(user.getId(), viewerId),
+                ErrorCode.NOT_FOUND_ERROR, "用户不存在");
         FriendSearchVO vo = new FriendSearchVO();
         vo.setUserId(user.getId());
         vo.setUserAccount(user.getUserAccount());
@@ -362,6 +387,73 @@ public class FriendServiceImpl extends ServiceImpl<UserFriendMapper, UserFriend>
     }
 
     @Override
+    public void blockUser(Long userId, Long targetUserId) {
+        ThrowUtils.throwIf(userId.equals(targetUserId), ErrorCode.PARAMS_ERROR, "不能拉黑自己");
+        User target = userMapper.selectById(targetUserId);
+        ThrowUtils.throwIf(target == null, ErrorCode.NOT_FOUND_ERROR, "用户不存在");
+        // 解除双向好友关系（陌生人拉黑也允许，用于防骚扰）
+        userFriendMapper.delete(new LambdaQueryWrapper<UserFriend>()
+                .eq(UserFriend::getUserId, userId).eq(UserFriend::getFriendId, targetUserId));
+        userFriendMapper.delete(new LambdaQueryWrapper<UserFriend>()
+                .eq(UserFriend::getUserId, targetUserId).eq(UserFriend::getFriendId, userId));
+        // 清理对方→我的待审申请（防同意后绕过拉黑重新成为好友）
+        userFriendMapper.delete(new LambdaQueryWrapper<UserFriend>()
+                .eq(UserFriend::getUserId, targetUserId)
+                .eq(UserFriend::getFriendId, userId)
+                .eq(UserFriend::getStatus, FriendConstant.STATUS_PENDING));
+        UserBlock block = new UserBlock();
+        block.setBlockerId(userId);
+        block.setBlockedId(targetUserId);
+        block.setCreateTime(new Date());
+        try {
+            userBlockMapper.insert(block);
+        } catch (DuplicateKeyException e) {
+            // 已拉黑：幂等
+        }
+        log.info("用户 {} 拉黑了 {}", userId, targetUserId);
+    }
+
+    @Override
+    public void unblockUser(Long userId, Long targetUserId) {
+        boolean exists = userBlockMapper.selectCount(new LambdaQueryWrapper<UserBlock>()
+                .eq(UserBlock::getBlockerId, userId)
+                .eq(UserBlock::getBlockedId, targetUserId)) > 0;
+        ThrowUtils.throwIf(!exists, ErrorCode.NOT_FOUND_ERROR, "未拉黑该用户");
+        userBlockMapper.delete(new LambdaQueryWrapper<UserBlock>()
+                .eq(UserBlock::getBlockerId, userId)
+                .eq(UserBlock::getBlockedId, targetUserId));
+    }
+
+    @Override
+    public List<com.senze.miaokaka.model.vo.BlockedUserVO> blockedList(Long userId) {
+        List<UserBlock> blocks = userBlockMapper.selectList(new LambdaQueryWrapper<UserBlock>()
+                .eq(UserBlock::getBlockerId, userId)
+                .orderByDesc(UserBlock::getId));
+        Map<Long, User> users = usersOf(blocks.stream().map(UserBlock::getBlockedId).toList());
+        List<com.senze.miaokaka.model.vo.BlockedUserVO> vos = new ArrayList<>();
+        for (UserBlock b : blocks) {
+            com.senze.miaokaka.model.vo.BlockedUserVO vo = new com.senze.miaokaka.model.vo.BlockedUserVO();
+            vo.setUserId(b.getBlockedId());
+            User u = users.get(b.getBlockedId());
+            if (u != null) {
+                vo.setUserName(u.getUserName());
+                vo.setUserAccount(u.getUserAccount());
+                vo.setUserAvatar(u.getUserAvatar());
+            }
+            vo.setCreateTime(b.getCreateTime());
+            vos.add(vo);
+        }
+        return vos;
+    }
+
+    @Override
+    public long friendCount(Long userId) {
+        return userFriendMapper.selectCount(new LambdaQueryWrapper<UserFriend>()
+                .eq(UserFriend::getUserId, userId)
+                .eq(UserFriend::getStatus, FriendConstant.STATUS_AGREED));
+    }
+
+    @Override
     public long like(Long userId, Long recordId) {
         CheckInRecord record = checkInRecordMapper.selectById(recordId);
         ThrowUtils.throwIf(record == null, ErrorCode.NOT_FOUND_ERROR, "打卡记录不存在");
@@ -390,6 +482,9 @@ public class FriendServiceImpl extends ServiceImpl<UserFriendMapper, UserFriend>
         userMapper.update(null, new LambdaUpdateWrapper<User>()
                 .eq(User::getId, targetId)
                 .setSql("dried_fish = dried_fish + 1"));
+        // 点赞通知（type=6）：仅首次点赞触达（重复点赞被唯一键拦截）
+        notificationService.notify(targetId, NotificationConstant.TYPE_LIKE,
+                "收到点赞", "「" + userNameOf(userId) + "」赞了你的打卡，小鱼干 +1", recordId);
         long likeCount = checkInLikeMapper.selectCount(new LambdaQueryWrapper<CheckInLike>()
                 .eq(CheckInLike::getRecordId, recordId));
         return likeCount;
@@ -404,6 +499,15 @@ public class FriendServiceImpl extends ServiceImpl<UserFriendMapper, UserFriend>
                 .eq(UserFriend::getUserId, a)
                 .eq(UserFriend::getFriendId, b)
                 .eq(UserFriend::getStatus, FriendConstant.STATUS_AGREED)) > 0;
+    }
+
+    /**
+     * 黑名单判定：a 是否拉黑了 b（单向即成立）
+     */
+    private boolean isBlocked(Long blockerId, Long blockedId) {
+        return userBlockMapper.selectCount(new LambdaQueryWrapper<com.senze.miaokaka.model.entity.UserBlock>()
+                .eq(com.senze.miaokaka.model.entity.UserBlock::getBlockerId, blockerId)
+                .eq(com.senze.miaokaka.model.entity.UserBlock::getBlockedId, blockedId)) > 0;
     }
 
     private List<Long> friendIdsOf(Long userId) {

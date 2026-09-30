@@ -63,6 +63,11 @@ public interface GameConstants {
     int MAKEUP_MONTHLY_LIMIT = 2;
     int MAKEUP_MAX_LOOKBACK_DAYS = 30;
 
+    /**
+     * 好友数量上限（每人）
+     */
+    int FRIEND_MAX = 500;
+
     // endregion
 
     // region 猫初始属性

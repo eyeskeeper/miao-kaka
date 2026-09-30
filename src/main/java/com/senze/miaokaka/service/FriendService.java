@@ -53,7 +53,7 @@ public interface FriendService extends IService<UserFriend> {
     /**
      * 搜索用户（账号精确匹配或用户 id），用于加好友前定位
      */
-    FriendSearchVO search(String keyword);
+    FriendSearchVO search(String keyword, Long viewerId);
 
     /**
      * 好友排行：好友 + 我，按全勤连击倒序
@@ -81,4 +81,25 @@ public interface FriendService extends IService<UserFriend> {
      * @return 该记录的累计点赞数
      */
     long like(Long userId, Long recordId);
+
+    /**
+     * 拉黑：解除双向好友关系 + 清理对方待审申请 + 写入黑名单（静默，不通知对方）。
+     * 封锁效果：对方搜索/申请/围观/点赞全部被拦截。
+     */
+    void blockUser(Long userId, Long targetUserId);
+
+    /**
+     * 解除拉黑（解除后对方可重新发起好友申请）
+     */
+    void unblockUser(Long userId, Long targetUserId);
+
+    /**
+     * 我的黑名单列表
+     */
+    List<com.senze.miaokaka.model.vo.BlockedUserVO> blockedList(Long userId);
+
+    /**
+     * 我的好友数量（status=1 方向行数）
+     */
+    long friendCount(Long userId);
 }

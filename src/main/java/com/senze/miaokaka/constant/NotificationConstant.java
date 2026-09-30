@@ -31,4 +31,9 @@ public interface NotificationConstant {
      * 好友申请通过
      */
     int TYPE_FRIEND_AGREE = 5;
+
+    /**
+     * 收到点赞
+     */
+    int TYPE_LIKE = 6;
 }

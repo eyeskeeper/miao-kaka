@@ -99,8 +99,9 @@ public class FriendController {
 
     @GetMapping("/search")
     @Operation(summary = "搜索用户", description = "按账号精确匹配或用户 id 定位，加好友前使用")
-    public BaseResponse<FriendSearchVO> search(@RequestParam String keyword) {
-        return ResultUtils.success(friendService.search(keyword));
+    public BaseResponse<FriendSearchVO> search(@RequestParam String keyword, HttpServletRequest servletRequest) {
+        User user = userService.getLoginUser(servletRequest);
+        return ResultUtils.success(friendService.search(keyword, user.getId()));
     }
 
     @GetMapping("/rank")
@@ -135,10 +136,33 @@ public class FriendController {
     }
 
     @PostMapping("/like/{recordId}")
-    @Operation(summary = "点赞好友打卡", description = "同一记录仅可赞一次；每日限 5 次；被赞者小鱼干 +1")
+    @Operation(summary = "点赞好友打卡", description = "同一记录仅可赞一次；每日限 5 次；被赞者小鱼干 +1 并收到点赞通知")
     public BaseResponse<Map<String, Long>> like(@PathVariable Long recordId, HttpServletRequest servletRequest) {
         User user = userService.getLoginUser(servletRequest);
         long likeCount = friendService.like(user.getId(), recordId);
         return ResultUtils.success(Map.of("likeCount", likeCount));
+    }
+
+    @PostMapping("/{friendUserId}/block")
+    @Operation(summary = "拉黑用户", description = "解除双向好友关系并封锁：对方搜索/申请/围观/点赞全部拦截，静默不通知")
+    public BaseResponse<Boolean> block(@PathVariable Long friendUserId, HttpServletRequest servletRequest) {
+        User user = userService.getLoginUser(servletRequest);
+        friendService.blockUser(user.getId(), friendUserId);
+        return ResultUtils.success(true);
+    }
+
+    @DeleteMapping("/{friendUserId}/block")
+    @Operation(summary = "解除拉黑", description = "解除后对方可重新发起好友申请")
+    public BaseResponse<Boolean> unblock(@PathVariable Long friendUserId, HttpServletRequest servletRequest) {
+        User user = userService.getLoginUser(servletRequest);
+        friendService.unblockUser(user.getId(), friendUserId);
+        return ResultUtils.success(true);
+    }
+
+    @GetMapping("/blocked")
+    @Operation(summary = "黑名单列表")
+    public BaseResponse<List<com.senze.miaokaka.model.vo.BlockedUserVO>> blocked(HttpServletRequest servletRequest) {
+        User user = userService.getLoginUser(servletRequest);
+        return ResultUtils.success(friendService.blockedList(user.getId()));
     }
 }

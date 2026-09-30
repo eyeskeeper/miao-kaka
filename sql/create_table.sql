@@ -388,3 +388,14 @@ create table `announcement`
     creator_id bigint                             not null comment '发布人id（admin）',
     create_time datetime default current_timestamp not null comment '发布时间'
 ) comment='系统公告表' collate = utf8mb4_unicode_ci;
+
+-- 用户黑名单表（2026-09-25 增补：拉黑=解除好友+封锁，静默不通知对方）
+create table `user_block`
+(
+    id          bigint auto_increment comment '记录id' primary key,
+    blocker_id  bigint                             not null comment '拉黑人id',
+    blocked_id  bigint                             not null comment '被拉黑人id',
+    create_time datetime default current_timestamp not null comment '拉黑时间',
+    unique key uk_blocker_blocked (blocker_id, blocked_id),
+    index idx_blocked (blocked_id)
+) comment='用户黑名单表' collate = utf8mb4_unicode_ci;
