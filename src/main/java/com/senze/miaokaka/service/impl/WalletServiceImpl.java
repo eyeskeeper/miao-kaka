@@ -73,6 +73,16 @@ public class WalletServiceImpl extends ServiceImpl<CoinTransactionMapper, CoinTr
 
     @Override
     @Transactional(rollbackFor = Exception.class)
+    public void grantCheckInCoins(Long userId, int amount, String note) {
+        if (amount <= 0) {
+            return;
+        }
+        addBalance(userId, amount);
+        record(userId, DuelConstant.COIN_TX_CHECKIN, amount, null, note);
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
     public void awardPoolShare(Long userId, int amount, Long duelId) {
         if (amount <= 0) {
             return;
