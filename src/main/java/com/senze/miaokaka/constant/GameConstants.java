@@ -68,6 +68,50 @@ public interface GameConstants {
      */
     int FRIEND_MAX = 500;
 
+    // region 猫猫战斗系统（配额制 BOSS + 随机事件）
+
+    /**
+     * 随机事件触发概率（%）
+     */
+    int RANDOM_EVENT_RATE = 30;
+
+    /**
+     * 随机事件四分支：物品 40 / 属性+ 25 / 属性- 25 / 饰品 10（累计阈值）
+     */
+    int EVENT_ITEM_MAX = 40;
+    int EVENT_STAT_PLUS_MAX = 65;
+    int EVENT_STAT_MINUS_MAX = 90;
+    // 91~100 = 发现饰品
+
+    /**
+     * BOSS 基准血量与线性递增步长（第 n 只 = BASE + (n-1)×STEP）
+     */
+    int BOSS_HP_FIRST = 60;
+    int BOSS_HP_STEP = 20;
+
+    /**
+     * BOSS 配额：每 7 天 1 只
+     */
+    int BOSS_DAYS_PER_BOSS = 7;
+
+    /**
+     * 配额打完后的喵币期奖励（个人 20 / 组队 40，每次打卡）
+     */
+    int COIN_PERIOD_REWARD = 20;
+    int COIN_PERIOD_REWARD_TEAM = 40;
+
+    /**
+     * 全清讨伐完成礼（一次性）
+     */
+    int PURGE_BONUS = 100;
+
+    /**
+     * 属性降低下限（不低于初始值 10 的一半）
+     */
+    int STAT_MINUS_FLOOR = 5;
+
+    // endregion
+
     /**
      * 黑名单数量上限（每人，防拉黑列表被当私刑工具滥用）
      */

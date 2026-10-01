@@ -95,6 +95,36 @@ public class CheckInResultVO implements Serializable {
     private Integer maxStreak;
 
     /**
+     * 事件编码：ATTACK/CRIT/STAT/STAT_PLUS/STAT_MINUS/ITEM/ACCESSORY/COIN_PERIOD
+     */
+    private String eventCode;
+
+    /**
+     * 事件结果像素图编码（美术完成后前端按此映射，当前= eventCode）
+     */
+    private String picCode;
+
+    /**
+     * 发现的饰品编码（美术/系统未完成，本期仅 ACCESSORY 文案）
+     */
+    private String accessoryCode;
+
+    /**
+     * 本局已击杀 BOSS 数（组队为共享击杀数）
+     */
+    private Integer bossKilled;
+
+    /**
+     * 本局 BOSS 配额
+     */
+    private Integer bossQuota;
+
+    /**
+     * 喵币期打卡奖励（打完配额后每次打卡的喵币）
+     */
+    private Integer coinReward;
+
+    /**
      * 猫口吻鼓励语（AI 生成，超时降级本地语录）
      */
     private String encouragement;

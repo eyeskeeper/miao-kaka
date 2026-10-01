@@ -98,6 +98,36 @@ public class Duel implements Serializable {
     private Integer maxMembers;
 
     /**
+     * 共享BOSS等级（组队打卡局）
+     */
+    private Integer bossLevel;
+
+    /**
+     * 共享BOSS名
+     */
+    private String bossName;
+
+    /**
+     * 共享BOSS当前血量
+     */
+    private Integer bossHp;
+
+    /**
+     * 共享BOSS最大血量
+     */
+    private Integer bossMaxHp;
+
+    /**
+     * 本局已击杀共享BOSS数
+     */
+    private Integer bossKilled;
+
+    /**
+     * 共享BOSS配额（ceil(totalDays/7)）
+     */
+    private Integer bossQuota;
+
+    /**
      * 当前奖池总额（人数×押金，冗余）
      */
     private Integer totalPool;

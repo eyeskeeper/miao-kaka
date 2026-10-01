@@ -13,12 +13,15 @@ import com.senze.miaokaka.constant.NameLibraryConstant;
 import com.senze.miaokaka.exception.BusinessException;
 import com.senze.miaokaka.exception.ThrowUtils;
 import com.senze.miaokaka.mapper.CatSpiritMapper;
+import com.senze.miaokaka.mapper.DuelMapper;
+import com.senze.miaokaka.mapper.DuelMemberMapper;
 import com.senze.miaokaka.mapper.CheckInPlanMapper;
 import com.senze.miaokaka.mapper.CheckInRecordMapper;
 import com.senze.miaokaka.mapper.UserMapper;
 import com.senze.miaokaka.model.dto.plan.TaskToggleRequest;
 import com.senze.miaokaka.model.entity.CheckInPlan;
 import com.senze.miaokaka.model.entity.CheckInRecord;
+import com.senze.miaokaka.model.entity.Duel;
 import com.senze.miaokaka.model.entity.CatSpirit;
 import com.senze.miaokaka.model.entity.User;
 import com.senze.miaokaka.model.vo.CheckInCalendarVO;
@@ -32,6 +35,7 @@ import com.senze.miaokaka.service.CatSpiritService;
 import com.senze.miaokaka.service.CheckInPlanService;
 import com.senze.miaokaka.service.CheckInRecordService;
 import com.senze.miaokaka.service.MallService;
+import com.senze.miaokaka.service.WalletService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DuplicateKeyException;
@@ -66,6 +70,10 @@ public class CheckInRecordServiceImpl extends ServiceImpl<CheckInRecordMapper, C
 
     private final CatSpiritMapper catSpiritMapper;
 
+    private final DuelMapper duelMapper;
+
+    private final DuelMemberMapper duelMemberMapper;
+
     private final CheckInPlanMapper checkInPlanMapper;
 
     private final UserMapper userMapper;
@@ -75,6 +83,8 @@ public class CheckInRecordServiceImpl extends ServiceImpl<CheckInRecordMapper, C
     private final AchievementService achievementService;
 
     private final MallService mallService;
+
+    private final WalletService walletService;
 
     private final TransactionTemplate transactionTemplate;
 
@@ -295,15 +305,22 @@ public class CheckInRecordServiceImpl extends ServiceImpl<CheckInRecordMapper, C
         }
         vo.setDoubleExp(doubleExp);
 
+        // 主事件掷骰：1~30 随机事件（物品/属性±/饰品） / 31~100 攻击 BOSS（含 1/7 暴击）
         int roll = ThreadLocalRandom.current().nextInt(1, 101);
-        if (roll <= GameConstants.EVENT_ATTACK_MAX || roll > GameConstants.EVENT_STAT_MAX) {
-            EventReward reward = resolveAttack(cat, plan.getCurrentStreak(),
-                    roll > GameConstants.EVENT_STAT_MAX, vo);
-            expGained += reward.expBonus();
-            pointsEarned += reward.pointsBonus();
+        EventReward reward = new EventReward(0, 0);
+        if (roll <= GameConstants.RANDOM_EVENT_RATE) {
+            resolveRandomEvent(user, cat, vo);
+        } else if (plan.getPlanSource() != null
+                && plan.getPlanSource() == CheckInConstant.PLAN_SOURCE_DUEL
+                && plan.getDuelId() != null) {
+            // 组队打卡：攻击全队共享 BOSS（duel 上的实体）
+            reward = resolveSharedBossAttack(user, plan, cat, vo);
         } else {
-            resolveStatBoost(cat, vo);
+            // 个人局：配额制 BOSS（新曲线）
+            reward = resolvePersonalBossEvent(user, plan, cat, vo);
         }
+        expGained += reward.expBonus();
+        pointsEarned += reward.pointsBonus();
 
         // 2. 经验结算与升级（升级三维各 +10%，并回满血）
         int exp = cat.getExperience() + expGained;
@@ -354,12 +371,106 @@ public class CheckInRecordServiceImpl extends ServiceImpl<CheckInRecordMapper, C
     }
 
     /**
-     * 攻击/暴击事件；若击败 BOSS 则结算奖励并刷新下一只满血 BOSS
+     * 随机事件四分支：获得物品 40% / 属性提升 25% / 属性降低 25% / 发现饰品 10%。
+     * 随机事件日不推进 BOSS 血量（互斥制）。
      */
-    private EventReward resolveAttack(CatSpirit cat, int streak, boolean isCrit, CheckInResultVO vo) {
+    private void resolveRandomEvent(User user, CatSpirit cat, CheckInResultVO vo) {
+        int sub = ThreadLocalRandom.current().nextInt(1, 101);
+        if (sub <= GameConstants.EVENT_ITEM_MAX) {
+            // 获得物品：随机补卡券 / 双倍经验卡入背包
+            String code = ThreadLocalRandom.current().nextBoolean()
+                    ? MallConstant.ITEM_MAKEUP_VOUCHER : MallConstant.ITEM_DOUBLE_EXP;
+            mallService.addItem(user.getId(), code, 1);
+            vo.setEventCode("ITEM");
+            vo.setEventDesc(String.format("%s 捡到了一个闪闪发光的背包：%s ×1！",
+                    cat.getCatName(), MallConstant.nameOf(code)));
+        } else if (sub <= GameConstants.EVENT_STAT_PLUS_MAX) {
+            // 属性提升
+            int gain = ThreadLocalRandom.current().nextInt(
+                    GameConstants.STAT_BOOST_MIN, GameConstants.STAT_BOOST_MAX + 1);
+            int pick = ThreadLocalRandom.current().nextInt(3);
+            String statName = switch (pick) {
+                case 0 -> {
+                    cat.setAttack(cat.getAttack() + gain);
+                    yield "攻击";
+                }
+                case 1 -> {
+                    cat.setDefense(cat.getDefense() + gain);
+                    yield "防御";
+                }
+                default -> {
+                    cat.setMaxHp(cat.getMaxHp() + gain);
+                    cat.setCurrentHp(cat.getCurrentHp() + gain);
+                    yield "生命上限";
+                }
+            };
+            vo.setEventCode("STAT_PLUS");
+            vo.setEventDesc(String.format("幸运女神眷顾！%s 的%s提升了 %d 点！",
+                    cat.getCatName(), statName, gain));
+        } else if (sub <= GameConstants.EVENT_STAT_MINUS_MAX) {
+            // 属性降低（下限保护：不低于 5）
+            int loss = ThreadLocalRandom.current().nextInt(
+                    GameConstants.STAT_BOOST_MIN, GameConstants.STAT_BOOST_MAX + 1);
+            int pick = ThreadLocalRandom.current().nextInt(3);
+            int before;
+            String statName;
+            switch (pick) {
+                case 0 -> {
+                    before = cat.getAttack();
+                    cat.setAttack(Math.max(GameConstants.STAT_MINUS_FLOOR, before - loss));
+                    statName = "攻击";
+                }
+                case 1 -> {
+                    before = cat.getDefense();
+                    cat.setDefense(Math.max(GameConstants.STAT_MINUS_FLOOR, before - loss));
+                    statName = "防御";
+                }
+                default -> {
+                    before = cat.getMaxHp();
+                    cat.setMaxHp(Math.max(GameConstants.STAT_MINUS_FLOOR, before - loss));
+                    statName = "生命上限";
+                }
+            }
+            int realLoss = before - (pick == 0 ? cat.getAttack() : pick == 1 ? cat.getDefense() : cat.getMaxHp());
+            vo.setEventCode("STAT_MINUS");
+            vo.setEventType("event");
+            vo.setEventDesc(String.format("%s 踩到蕉皮！%s 下降了 %d 点（有下限保护）",
+                    cat.getCatName(), statName, Math.max(0, realLoss)));
+        } else {
+            // 发现饰品（美术/系统未完成，仅文案与 eventCode 接口）
+            vo.setEventCode("ACCESSORY");
+            vo.setAccessoryCode("ACCESSORY_MYSTERY");
+            vo.setEventDesc(String.format("%s 发现了一枚神秘的饰品，闪闪发光……（饰品系统敬请期待）",
+                    cat.getCatName()));
+        }
+        vo.setEventType("event");
+    }
+
+    /**
+     * 个人局 BOSS 事件（配额制）：配额打完 → 喵币期 20 喵币/次；
+     * 未打完 → 攻击（新曲线 HP = 60 + (n-1)×20）；击败最后一只配额 BOSS → 讨伐完成礼 100 喵币
+     */
+    private EventReward resolvePersonalBossEvent(User user, CheckInPlan plan, CatSpirit cat, CheckInResultVO vo) {
+        int quota = plan.getBossQuota() == null ? 1 : plan.getBossQuota();
+        int killed = plan.getBossKilled() == null ? 0 : plan.getBossKilled();
+        if (killed >= quota) {
+            // 喵币期：配额已全部击杀
+            int reward = GameConstants.COIN_PERIOD_REWARD;
+            walletService.grantCheckInCoins(user.getId(), reward, "打卡喵币期奖励（BOSS 讨伐完成）");
+            vo.setEventCode("COIN_PERIOD");
+            vo.setCoinReward(reward);
+            vo.setBossKilled(killed);
+            vo.setBossQuota(quota);
+            vo.setEventType("coin");
+            vo.setEventDesc(String.format("BOSS 讨伐已完成！%s 领取了 %d 喵币奖励！",
+                    cat.getCatName(), reward));
+            return new EventReward(0, 0);
+        }
+        boolean isCrit = ThreadLocalRandom.current().nextInt(7) == 0;
         double factor = GameConstants.DAMAGE_MIN_FACTOR
                 + ThreadLocalRandom.current().nextDouble(GameConstants.DAMAGE_MAX_FACTOR - GameConstants.DAMAGE_MIN_FACTOR);
-        double damage = cat.getAttack() * (1 + streak * GameConstants.STREAK_DAMAGE_BONUS_PER_DAY) * factor;
+        double damage = cat.getAttack() * (1 + plan.getCurrentStreak()
+                * GameConstants.STREAK_DAMAGE_BONUS_PER_DAY) * factor;
         if (isCrit) {
             damage *= GameConstants.CRIT_DAMAGE_MULTIPLIER;
         }
@@ -367,8 +478,8 @@ public class CheckInRecordServiceImpl extends ServiceImpl<CheckInRecordMapper, C
         int hpBefore = cat.getBossHp();
         int hpAfter = Math.max(0, hpBefore - realDamage);
         cat.setBossHp(hpAfter);
-
         vo.setEventType(isCrit ? CheckInConstant.EVENT_TYPE_CRIT : CheckInConstant.EVENT_TYPE_ATTACK);
+        vo.setEventCode(isCrit ? "CRIT" : "ATTACK");
         vo.setBossName(cat.getBossName());
         vo.setBossHpBefore(hpBefore);
         vo.setBossHpAfter(hpAfter);
@@ -380,23 +491,160 @@ public class CheckInRecordServiceImpl extends ServiceImpl<CheckInRecordMapper, C
         if (hpAfter > 0) {
             return new EventReward(0, 0);
         }
-        int expBonus = GameConstants.EXP_PER_BOSS_KILL_BASE * cat.getBossLevel();
-        int pointsBonus = GameConstants.POINTS_PER_BOSS_KILL_BASE * cat.getBossLevel();
+        int bossNo = killed + 1;
+        int expBonus = GameConstants.EXP_PER_BOSS_KILL_BASE * bossNo;
+        int pointsBonus = GameConstants.POINTS_PER_BOSS_KILL_BASE * bossNo;
         cat.setTotalBossDefeated(cat.getTotalBossDefeated() + 1);
-        int newBossLevel = cat.getBossLevel() + 1;
-        int newBossHp = CatSpiritServiceImpl.bossMaxHp(newBossLevel);
+        int newBossHp = GameConstants.BOSS_HP_FIRST + bossNo * GameConstants.BOSS_HP_STEP;
         String oldBossName = cat.getBossName();
-        cat.setBossLevel(newBossLevel);
         cat.setBossMaxHp(newBossHp);
         cat.setBossHp(newBossHp);
         cat.setBossName(NameLibraryConstant.randomBossName());
+        plan.setBossKilled(bossNo);
         vo.setBossDefeated(true);
-        vo.setNewBossLevel(newBossLevel);
-        vo.setNewBossName(cat.getBossName());
-        vo.setNewBossMaxHp(newBossHp);
-        vo.setEventDesc(vo.getEventDesc() + String.format(" %s 倒下了！下一只 BOSS %s（Lv.%d）登场！",
-                oldBossName, cat.getBossName(), newBossLevel));
+        vo.setBossKilled(bossNo);
+        vo.setBossQuota(quota);
+        vo.setEventDesc(vo.getEventDesc() + String.format(" %s 倒下了！（配额 %d/%d）",
+                oldBossName, bossNo, quota));
+        if (bossNo >= quota) {
+            // 全清讨伐完成礼
+            walletService.grantCheckInCoins(user.getId(), GameConstants.PURGE_BONUS,
+                    "打卡成就：BOSS 讨伐完成礼");
+            vo.setCoinReward(GameConstants.PURGE_BONUS);
+            vo.setEventDesc(vo.getEventDesc() + " 讨伐完成礼 100 喵币！");
+        }
         return new EventReward(expBonus, pointsBonus);
+    }
+
+    /**
+     * 组队打卡：攻击全队共享 BOSS（duel 上的实体）。
+     * 击败时全队每人获得击败奖励（经验进各自猫、积分进各自用户）；
+     * 配额全清当次全员讨伐完成礼 +100 喵币；配额打完后的打卡进入喵币期（40 喵币/次，归打卡者）。
+     */
+    private EventReward resolveSharedBossAttack(User user, CheckInPlan plan, CatSpirit cat, CheckInResultVO vo) {
+        Duel duel = duelMapper.selectById(plan.getDuelId());
+        if (duel == null || duel.getBossHp() == null) {
+            // 数据异常兜底：按无事件处理
+            vo.setEventCode("NONE");
+            return new EventReward(0, 0);
+        }
+        // 喵币期：配额已全清
+        if (duel.getBossKilled() >= duel.getBossQuota()) {
+            int reward = GameConstants.COIN_PERIOD_REWARD_TEAM;
+            walletService.grantCheckInCoins(user.getId(), reward,
+                    "组队打卡喵币期奖励（BOSS 讨伐完成）");
+            vo.setEventCode("COIN_PERIOD");
+            vo.setCoinReward(reward);
+            vo.setBossKilled(duel.getBossKilled());
+            vo.setBossQuota(duel.getBossQuota());
+            vo.setEventType("coin");
+            vo.setEventDesc(String.format("全队 BOSS 讨伐已完成！%s 领取了 %d 喵币（双倍）！",
+                    cat.getCatName(), reward));
+            return new EventReward(0, 0);
+        }
+        boolean isCrit = ThreadLocalRandom.current().nextInt(7) == 0;
+        double factor = GameConstants.DAMAGE_MIN_FACTOR
+                + ThreadLocalRandom.current().nextDouble(GameConstants.DAMAGE_MAX_FACTOR - GameConstants.DAMAGE_MIN_FACTOR);
+        double damage = cat.getAttack() * (1 + plan.getCurrentStreak()
+                * GameConstants.STREAK_DAMAGE_BONUS_PER_DAY) * factor;
+        if (isCrit) {
+            damage *= GameConstants.CRIT_DAMAGE_MULTIPLIER;
+        }
+        int realDamage = Math.max(1, (int) Math.round(damage));
+        int hpBefore = duel.getBossHp();
+        int hpAfter = Math.max(0, hpBefore - realDamage);
+        duel.setBossHp(hpAfter);
+        duelMapper.updateById(duel);
+        vo.setEventType(isCrit ? CheckInConstant.EVENT_TYPE_CRIT : CheckInConstant.EVENT_TYPE_ATTACK);
+        vo.setEventCode(isCrit ? "CRIT" : "ATTACK");
+        vo.setBossName(duel.getBossName());
+        vo.setBossHpBefore(hpBefore);
+        vo.setBossHpAfter(hpAfter);
+        vo.setDamage(realDamage);
+        vo.setEventDesc(isCrit
+                ? String.format("会心一击！%s 扑向全队共享 BOSS %s，造成 %d 点伤害！",
+                        cat.getCatName(), duel.getBossName(), realDamage)
+                : String.format("%s 扑向全队共享 BOSS %s，造成 %d 点伤害！",
+                        cat.getCatName(), duel.getBossName(), realDamage));
+
+        if (hpAfter <= 0) {
+            return onSharedBossKilled(duel, user, cat, vo);
+        }
+        return new EventReward(0, 0);
+    }
+
+    /**
+     * 共享 BOSS 击败：boss_killed+1、全队每人击败奖励（经验进各自猫、积分进各自用户）、
+     * 全清时全员讨伐完成礼 100 喵币、刷新下一只（HP = 单只基准 × 当前成员数）
+     */
+    private EventReward onSharedBossKilled(Duel duel, User attacker, CatSpirit attackerCat,
+                                           CheckInResultVO vo) {
+        int newKilled = duel.getBossKilled() + 1;
+        duel.setBossKilled(newKilled);
+        int bossLevel = duel.getBossLevel() == null ? 1 : duel.getBossLevel();
+        int killExp = GameConstants.EXP_PER_BOSS_KILL_BASE * bossLevel;
+        int killPoints = GameConstants.POINTS_PER_BOSS_KILL_BASE * bossLevel;
+        String oldBossName = duel.getBossName();
+        duel.setBossLevel(bossLevel + 1);
+        duel.setBossName(NameLibraryConstant.randomBossName());
+        boolean quotaCleared = newKilled >= duel.getBossQuota();
+
+        List<com.senze.miaokaka.model.entity.DuelMember> members = duelMemberMapper.selectList(
+                new LambdaQueryWrapper<com.senze.miaokaka.model.entity.DuelMember>()
+                        .eq(com.senze.miaokaka.model.entity.DuelMember::getDuelId, duel.getId())
+                        .notIn(com.senze.miaokaka.model.entity.DuelMember::getStatus,
+                                com.senze.miaokaka.constant.DuelConstant.MEMBER_STATUS_QUIT,
+                                com.senze.miaokaka.constant.DuelConstant.MEMBER_STATUS_REMOVED));
+        for (com.senze.miaokaka.model.entity.DuelMember m : members) {
+            CatSpirit memberCat = catSpiritMapper.selectOne(new LambdaQueryWrapper<CatSpirit>()
+                    .eq(CatSpirit::getPlanId, m.getPlanId())
+                    .last("limit 1"));
+            if (memberCat != null) {
+                memberCat.setExperience(memberCat.getExperience() + killExp);
+                catSpiritMapper.updateById(memberCat);
+            }
+            User memberUser = userMapper.selectById(m.getUserId());
+            if (memberUser != null) {
+                memberUser.setTotalPoints(memberUser.getTotalPoints() + killPoints);
+                userMapper.updateById(memberUser);
+                cacheService.evict(CacheService.keyUser(m.getUserId()));
+            }
+            if (quotaCleared) {
+                walletService.grantCheckInCoins(m.getUserId(), GameConstants.PURGE_BONUS,
+                        "组队打卡：BOSS 讨伐完成礼");
+            }
+            if (m.getUserId().equals(attacker.getId())) {
+                vo.setBossDefeated(true);
+                vo.setNewBossLevel(bossLevel + 1);
+                vo.setNewBossName(duel.getBossName());
+            }
+        }
+        // 刷新下一只：HP = 单只基准 × 当前成员数
+        int nextHp = sharedBossMaxHp(duel);
+        duel.setBossMaxHp(nextHp);
+        duel.setBossHp(nextHp);
+        duelMapper.updateById(duel);
+        cacheService.evict(CacheService.keyDuelAgg(duel.getId()));
+        vo.setEventDesc(vo.getEventDesc() + String.format(" %s 倒下了！全队每人 +%d 经验/%d 积分！%s",
+                oldBossName, killExp, killPoints,
+                quotaCleared ? "讨伐完成，全员 100 喵币，进入喵币期！" : ""));
+        log.info("组队 {} 共享 BOSS 击败：第 {}/{} 只", duel.getId(), newKilled, duel.getBossQuota());
+        return new EventReward(killExp, killPoints);
+    }
+
+    /**
+     * 共享 BOSS 最大血量 = 单只基准 × 当前在册成员数
+     */
+    private int sharedBossMaxHp(Duel duel) {
+        long memberCount = duelMemberMapper.selectCount(
+                new LambdaQueryWrapper<com.senze.miaokaka.model.entity.DuelMember>()
+                        .eq(com.senze.miaokaka.model.entity.DuelMember::getDuelId, duel.getId())
+                        .notIn(com.senze.miaokaka.model.entity.DuelMember::getStatus,
+                                com.senze.miaokaka.constant.DuelConstant.MEMBER_STATUS_QUIT,
+                                com.senze.miaokaka.constant.DuelConstant.MEMBER_STATUS_REMOVED));
+        int level = duel.getBossLevel() == null ? 1 : duel.getBossLevel();
+        int singleHp = GameConstants.BOSS_HP_FIRST + (level - 1) * GameConstants.BOSS_HP_STEP;
+        return singleHp * (int) Math.max(1, memberCount);
     }
 
     private void resolveStatBoost(CatSpirit cat, CheckInResultVO vo) {

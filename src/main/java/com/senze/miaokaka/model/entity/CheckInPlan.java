@@ -92,6 +92,16 @@ public class CheckInPlan implements Serializable {
     private Integer currentStreak;
 
     /**
+     * 本计划已击杀BOSS数（个人局配额追踪）
+     */
+    private Integer bossKilled;
+
+    /**
+     * 本计划BOSS配额（ceil(targetDays/7)）
+     */
+    private Integer bossQuota;
+
+    /**
      * 历史最长连续打卡天数（计划级）
      */
     private Integer maxStreak;

@@ -8,6 +8,8 @@ import com.baomidou.mybatisplus.spring.service.impl.ServiceImpl;
 import com.senze.miaokaka.common.ErrorCode;
 import com.senze.miaokaka.constant.CheckInConstant;
 import com.senze.miaokaka.constant.DuelConstant;
+import com.senze.miaokaka.constant.GameConstants;
+import com.senze.miaokaka.constant.NameLibraryConstant;
 import com.senze.miaokaka.constant.NotificationConstant;
 import com.senze.miaokaka.exception.ThrowUtils;
 import com.senze.miaokaka.mapper.DuelMapper;
@@ -129,6 +131,17 @@ public class DuelServiceImpl extends ServiceImpl<DuelMapper, Duel> implements Du
             d.setMemberCount(0);
             d.setTotalPool(0);
             d.setSettled(0);
+            // 组队打卡局：共享 BOSS 初始化（招募期不计战斗，开赛无额外动作，首名成员加入即成形）
+            if (teamMode) {
+                d.setBossLevel(1);
+                d.setBossName(com.senze.miaokaka.constant.NameLibraryConstant.randomBossName());
+                int singleHp = GameConstants.BOSS_HP_FIRST;
+                d.setBossMaxHp(singleHp);
+                d.setBossHp(singleHp);
+                d.setBossKilled(0);
+                d.setBossQuota(Math.max(1, (int) Math.ceil(
+                        request.getTotalDays() / (double) GameConstants.BOSS_DAYS_PER_BOSS)));
+            }
             save(d);
             // 创建者即第一名成员（加入流程含扣押金 + 影子计划）
             joinDuelTx(d, userId);
@@ -363,6 +376,8 @@ public class DuelServiceImpl extends ServiceImpl<DuelMapper, Duel> implements Du
             duel.setMemberCount(Math.max(0, duel.getMemberCount() - 1));
             duel.setTotalPool(Math.max(0, duel.getTotalPool() - member.getDeposit()));
             updateById(duel);
+            // 组队打卡：共享 BOSS 随成员数缩小
+            recalcSharedBoss(duel);
             cacheService.evict(CacheService.keyDuelAgg(duelId));
             return null;
         });
@@ -425,6 +440,8 @@ public class DuelServiceImpl extends ServiceImpl<DuelMapper, Duel> implements Du
             duel.setMemberCount(Math.max(0, duel.getMemberCount() - 1));
             duel.setTotalPool(Math.max(0, duel.getTotalPool() - member.getDeposit()));
             updateById(duel);
+            // 组队打卡：共享 BOSS 随成员数缩小
+            recalcSharedBoss(duel);
             cacheService.evict(CacheService.keyDuelAgg(duelId));
             return null;
         });
@@ -650,6 +667,8 @@ public class DuelServiceImpl extends ServiceImpl<DuelMapper, Duel> implements Du
             walletService.chargeDeposit(userId, duel.getDepositPerMember(), duel.getId());
         }
         createMembershipTx(duel, userId);
+        // 组队打卡：共享 BOSS 随成员数放大
+        recalcSharedBoss(duel);
     }
 
     /**
@@ -728,6 +747,30 @@ public class DuelServiceImpl extends ServiceImpl<DuelMapper, Duel> implements Du
      */
     private boolean isTeamMode(Duel duel) {
         return duel.getMode() != null && duel.getMode() == DuelConstant.DUEL_MODE_TEAM;
+    }
+
+    /**
+     * 组队打卡：共享 BOSS 随成员数等比例重算（加入/退出/移除后调用）
+     */
+    private void recalcSharedBoss(Duel duel) {
+        if (!isTeamMode(duel) || duel.getBossMaxHp() == null) {
+            return;
+        }
+        long members = Math.max(1, duelMemberMapper.selectCount(
+                new LambdaQueryWrapper<com.senze.miaokaka.model.entity.DuelMember>()
+                        .eq(com.senze.miaokaka.model.entity.DuelMember::getDuelId, duel.getId())
+                        .notIn(com.senze.miaokaka.model.entity.DuelMember::getStatus,
+                                DuelConstant.MEMBER_STATUS_QUIT,
+                                DuelConstant.MEMBER_STATUS_REMOVED)));
+        int level = duel.getBossLevel() == null ? 1 : duel.getBossLevel();
+        int singleHp = GameConstants.BOSS_HP_FIRST + (level - 1) * GameConstants.BOSS_HP_STEP;
+        int newMax = singleHp * (int) members;
+        int oldMax = duel.getBossMaxHp() == null ? newMax : duel.getBossMaxHp();
+        int curHp = duel.getBossHp() == null ? oldMax : duel.getBossHp();
+        int newHp = (int) Math.round(curHp * (double) newMax / oldMax);
+        duel.setBossMaxHp(newMax);
+        duel.setBossHp(Math.max(0, newHp));
+        updateById(duel);
     }
 
     private DuelMember getMember(Long duelId, Long userId) {

@@ -399,3 +399,13 @@ create table `user_block`
     unique key uk_blocker_blocked (blocker_id, blocked_id),
     index idx_blocked (blocked_id)
 ) comment='用户黑名单表' collate = utf8mb4_unicode_ci;
+
+-- 猫猫战斗系统重构（2026-09-25 增补：配额制 BOSS + 组队共享 BOSS + 随机事件）
+alter table `duel` add column `boss_level` int not null default 1 comment '共享BOSS等级' after `max_members`;
+alter table `duel` add column `boss_name` varchar(64) default null comment '共享BOSS名' after `boss_level`;
+alter table `duel` add column `boss_hp` int default null comment '共享BOSS当前血量' after `boss_name`;
+alter table `duel` add column `boss_max_hp` int default null comment '共享BOSS最大血量' after `boss_hp`;
+alter table `duel` add column `boss_killed` int not null default 0 comment '本局已击杀共享BOSS数' after `boss_max_hp`;
+alter table `duel` add column `boss_quota` int not null default 3 comment '共享BOSS配额（ceil(totalDays/7)）' after `boss_killed`;
+alter table `check_in_plan` add column `boss_killed` int not null default 0 comment '本计划已击杀BOSS数（个人局配额追踪）' after `current_streak`;
+alter table `check_in_plan` add column `boss_quota` int not null default 1 comment '本计划BOSS配额（ceil(targetDays/7)）' after `boss_killed`;
