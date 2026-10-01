@@ -33,7 +33,8 @@ public class CatSpiritServiceImpl extends ServiceImpl<CatSpiritMapper, CatSpirit
         cat.setCurrentHp(GameConstants.CAT_INIT_MAX_HP);
         cat.setBossLevel(1);
         cat.setBossName(NameLibraryConstant.randomBossName());
-        int firstBossHp = bossMaxHp(1);
+        // 新配额曲线：首只 BOSS 血量 60（GameConstants.BOSS_HP_FIRST）
+        int firstBossHp = GameConstants.BOSS_HP_FIRST;
         cat.setBossMaxHp(firstBossHp);
         cat.setBossHp(firstBossHp);
         cat.setTotalBossDefeated(0);

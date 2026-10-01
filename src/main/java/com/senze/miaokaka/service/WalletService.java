@@ -22,6 +22,11 @@ public interface WalletService extends IService<CoinTransaction> {
     void chargeDeposit(Long userId, int amount, Long duelId);
 
     /**
+     * 打卡喵币奖励（BOSS 配额打完后的喵币期 / 讨伐完成礼）
+     */
+    void grantCheckInCoins(Long userId, int amount, String note);
+
+    /**
      * 退还（开始前退出 / 结算自退）
      */
     void refund(Long userId, int amount, Long duelId, String remark);
