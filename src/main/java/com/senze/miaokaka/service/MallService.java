@@ -42,4 +42,9 @@ public interface MallService extends IService<UserItem> {
      * @return 兑换后剩余小鱼干
      */
     int exchangeFish(Long userId, int fish);
+
+    /**
+     * 发放道具（随机事件掉落等；无行则新建，有行则累加）
+     */
+    void addItem(Long userId, String itemCode, int delta);
 }

@@ -57,6 +57,7 @@ public interface DuelConstant {
     int COIN_TX_ADMIN_ADJUST = 4;
     int COIN_TX_DAILY_REFUND = 5;
     int COIN_TX_DAILY_CLAWBACK = 6;
+    int COIN_TX_CHECKIN = 7;
 
     // endregion
 
