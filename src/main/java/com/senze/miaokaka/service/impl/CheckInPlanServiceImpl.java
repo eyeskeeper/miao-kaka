@@ -58,6 +58,10 @@ public class CheckInPlanServiceImpl extends ServiceImpl<CheckInPlanMapper, Check
         plan.setDailyTasks(toDailyTasksJson(request.getDailyTasks()));
         plan.setCurrentStreak(0);
         plan.setMaxStreak(0);
+        // BOSS 配额：每 7 天 1 只（21 天 3 只）
+        plan.setBossQuota((int) Math.ceil(
+                (request.getTargetDays() == null ? 0 : request.getTargetDays()) / 7.0));
+        plan.setBossKilled(0);
         plan.setTotalTasks(request.getDailyTasks() == null ? 1 : request.getDailyTasks().size());
         plan.setTaskProgress("");
         plan.setCompletedTasks(0);
@@ -87,6 +91,8 @@ public class CheckInPlanServiceImpl extends ServiceImpl<CheckInPlanMapper, Check
         }
         if (request.getTargetDays() != null) {
             plan.setTargetDays(request.getTargetDays());
+            plan.setBossQuota(Math.max(1, (int) Math.ceil(
+                    (request.getTargetDays() == null ? 0 : request.getTargetDays()) / 7.0)));
         }
         if (request.getRemindTime() != null) {
             plan.setRemindTime(StrUtil.isBlank(request.getRemindTime()) ? null : request.getRemindTime());
@@ -162,6 +168,9 @@ public class CheckInPlanServiceImpl extends ServiceImpl<CheckInPlanMapper, Check
         plan.setPlanType(3);
         plan.setTargetDays(totalDays);
         plan.setCurrentStreak(0);
+        // 影子计划同样配 BOSS 配额（组队局为共享 BOSS，quota 供 duel 侧参照）
+        plan.setBossQuota(Math.max(1, (int) Math.ceil(totalDays / 7.0)));
+        plan.setBossKilled(0);
         plan.setMaxStreak(0);
         if (dailyTasks != null && !dailyTasks.isEmpty()) {
             // 复制死斗任务清单：成员可勾选；勾满不自动打卡，凭证审核仍是唯一完成门槛

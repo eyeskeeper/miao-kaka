@@ -108,7 +108,12 @@ public class MallServiceImpl extends ServiceImpl<UserItemMapper, UserItem> imple
         return consumed;
     }
 
-    private void addItem(Long userId, String itemCode, int delta) {
+    @Override
+    public void addItem(Long userId, String itemCode, int delta) {
+        addItemInternal(userId, itemCode, delta);
+    }
+
+    private void addItemInternal(Long userId, String itemCode, int delta) {
         UserItem existing = getOne(new LambdaQueryWrapper<UserItem>()
                 .eq(UserItem::getUserId, userId)
                 .eq(UserItem::getItemCode, itemCode));
