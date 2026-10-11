@@ -156,13 +156,6 @@ public class DuelController {
         return ResultUtils.success(duelService.transfer(user.getId(), duelId, targetUserId));
     }
 
-    @PostMapping("/{duelId}/quit")
-    @Operation(summary = "退出死斗", description = "仅招募中；全额退款")
-    public BaseResponse<DuelVO> quit(@PathVariable Long duelId, HttpServletRequest servletRequest) {
-        User user = userService.getLoginUser(servletRequest);
-        return ResultUtils.success(duelService.quit(user.getId(), duelId));
-    }
-
     @PostMapping("/{duelId}/nudge/{targetUserId}")
     @Operation(summary = "拍一下", description = "同死斗成员互拍；文案=我的模板→系统默认；发起方每日限 5 次（北京午夜重置）；对方收件箱上限 20 条（当日过期）；消息不落数据库")
     public BaseResponse<NudgeSentVO> nudge(@PathVariable Long duelId,

@@ -63,8 +63,6 @@ public interface DuelService extends IService<Duel> {
      */
     DuelVO transfer(Long userId, Long duelId, Long targetUserId);
 
-    DuelVO quit(Long userId, Long duelId);
-
     DuelVO detail(Long userId, Long duelId);
 
     List<DuelVO> listMine(Long userId);

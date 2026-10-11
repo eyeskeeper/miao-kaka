@@ -355,36 +355,6 @@ public class DuelServiceImpl extends ServiceImpl<DuelMapper, Duel> implements Du
     }
 
     @Override
-    public DuelVO quit(Long userId, Long duelId) {
-        Duel duel = getRequiredDuel(duelId);
-        boolean teamMode = isTeamMode(duel);
-        // 组队打卡：进行中也可自由退出（无押金锁定）；押金死斗开始后锁定
-        ThrowUtils.throwIf(duel.getStatus() != DuelConstant.DUEL_STATUS_RECRUITING
-                        && !(duel.getStatus() == DuelConstant.DUEL_STATUS_RUNNING && teamMode),
-                ErrorCode.OPERATION_ERROR, "死斗已开始，押金锁定不可退出");
-        DuelMember member = getMember(duelId, userId);
-        ThrowUtils.throwIf(member == null || member.getStatus() == DuelConstant.MEMBER_STATUS_QUIT,
-                ErrorCode.NOT_FOUND_ERROR, "你不是该死斗成员");
-        transactionTemplate.execute(status -> {
-            // 退款（仅押金死斗招募期） + 成员退出 + 影子计划随之下架
-            if (duel.getStatus() == DuelConstant.DUEL_STATUS_RECRUITING && !teamMode) {
-                walletService.refund(userId, member.getDeposit(), duelId, "开始前退出，全额退款");
-            }
-            member.setStatus(DuelConstant.MEMBER_STATUS_QUIT);
-            duelMemberMapper.updateById(member);
-            checkInPlanService.removeById(member.getPlanId());
-            duel.setMemberCount(Math.max(0, duel.getMemberCount() - 1));
-            duel.setTotalPool(Math.max(0, duel.getTotalPool() - member.getDeposit()));
-            updateById(duel);
-            // 组队打卡：共享 BOSS 随成员数缩小
-            recalcSharedBoss(duel);
-            cacheService.evict(CacheService.keyDuelAgg(duelId));
-            return null;
-        });
-        return detail(userId, duelId);
-    }
-
-    @Override
     public DuelVO removeMember(Long userId, Long duelId, Long targetUserId) {
         Duel duel = getRequiredDuel(duelId);
         ThrowUtils.throwIf(!duel.getLeaderId().equals(userId), ErrorCode.NO_AUTH_ERROR, "仅组长可移除成员");
