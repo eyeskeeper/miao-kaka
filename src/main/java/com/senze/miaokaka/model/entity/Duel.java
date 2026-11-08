@@ -63,6 +63,16 @@ public class Duel implements Serializable {
     private Integer hidden;
 
     /**
+     * 审核方式 (0:组长审核, 1:组内互审)
+     */
+    private Integer reviewMode;
+
+    /**
+     * AI 预审 (0:关闭, 1:开启；开启时 AI 建议通过直接免人工，建议驳回转人工)
+     */
+    private Integer aiReview;
+
+    /**
      * 每人押金（喵币）
      */
     private Integer depositPerMember;

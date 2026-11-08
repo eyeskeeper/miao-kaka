@@ -1,5 +1,6 @@
 package com.senze.miaokaka.config;
 
+import com.senze.miaokaka.service.DuelBattleService;
 import com.senze.miaokaka.service.DuelImpeachmentService;
 import com.senze.miaokaka.service.DuelService;
 import com.senze.miaokaka.service.DuelSettlementService;
@@ -9,7 +10,7 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
 /**
- * 死斗定时任务：到点开赛 + 到期结算（详情/列表访问时有 lazy 兜底）
+ * 死斗定时任务：到点开赛 + 到期结算 + 弹劾判负 + 待审超时自动通过（详情/列表访问时有 lazy 兜底）
  *
  * @author <a href="https://github.com/eyeskeeper">冉森</a>
  */
@@ -23,6 +24,8 @@ public class DuelScheduler {
     private final DuelSettlementService duelSettlementService;
 
     private final DuelImpeachmentService duelImpeachmentService;
+
+    private final DuelBattleService duelBattleService;
 
     /**
      * 每日 00:20（北京时间，随服务器时区）开赛扫描
@@ -50,6 +53,17 @@ public class DuelScheduler {
         int resolved = duelImpeachmentService.resolveExpired();
         if (resolved > 0) {
             log.info("定时任务：判负过期弹劾 {} 场", resolved);
+        }
+    }
+
+    /**
+     * 每小时整点：进行中局提交超 24 小时仍待审的凭证自动通过（组长审核/组内互审一致）
+     */
+    @Scheduled(cron = "0 0 * * * ?")
+    public void autoApproveOverdueEvidence() {
+        int approved = duelBattleService.autoApproveOverdue();
+        if (approved > 0) {
+            log.info("定时任务：超时自动通过待审凭证 {} 条", approved);
         }
     }
 }

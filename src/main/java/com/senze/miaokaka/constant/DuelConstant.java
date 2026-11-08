@@ -40,6 +40,13 @@ public interface DuelConstant {
 
     // endregion
 
+    // region 审核方式
+
+    int REVIEW_MODE_LEADER = 0;
+    int REVIEW_MODE_PEER = 1;
+
+    // endregion
+
     // region 加入申请状态
 
     int JOIN_REQUEST_PENDING = 0;

@@ -6,7 +6,7 @@ import java.io.Serializable;
 import java.time.LocalDate;
 
 /**
- * 待审核凭证条目（组长视角）
+ * 待审核凭证条目（组长/派单审核人视角）
  *
  * @author <a href="https://github.com/eyeskeeper">冉森</a>
  */
@@ -20,6 +20,11 @@ public class ReviewItemVO implements Serializable {
     private String userName;
 
     private String userAvatar;
+
+    /**
+     * 互审派单审核员昵称（组内互审模式；组长全局视图展示"待谁审"）
+     */
+    private String assigneeName;
 
     /**
      * 凭证原图 URL

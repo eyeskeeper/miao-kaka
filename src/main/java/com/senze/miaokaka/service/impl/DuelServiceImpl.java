@@ -19,6 +19,7 @@ import com.senze.miaokaka.mapper.CheckInEvidenceMapper;
 import com.senze.miaokaka.mapper.CheckInRecordMapper;
 import com.senze.miaokaka.mapper.UserMapper;
 import com.senze.miaokaka.model.dto.duel.DuelCreateRequest;
+import com.senze.miaokaka.model.dto.duel.DuelUpdateRequest;
 import com.senze.miaokaka.model.dto.duel.JoinApplicationReviewRequest;
 import com.senze.miaokaka.model.entity.CheckInEvidence;
 import com.senze.miaokaka.model.entity.CheckInPlan;
@@ -32,6 +33,7 @@ import com.senze.miaokaka.model.vo.DuelVO;
 import com.senze.miaokaka.model.vo.JoinRequestVO;
 import com.senze.miaokaka.service.CacheService;
 import com.senze.miaokaka.service.CheckInPlanService;
+import com.senze.miaokaka.service.DuelBattleService;
 import com.senze.miaokaka.service.DuelImpeachmentService;
 import com.senze.miaokaka.service.DuelService;
 import com.senze.miaokaka.service.DuelSettlementService;
@@ -81,6 +83,8 @@ public class DuelServiceImpl extends ServiceImpl<DuelMapper, Duel> implements Du
 
     private final DuelImpeachmentService duelImpeachmentService;
 
+    private final DuelBattleService duelBattleService;
+
     private final NotificationService notificationService;
 
     private final TransactionTemplate transactionTemplate;
@@ -117,6 +121,10 @@ public class DuelServiceImpl extends ServiceImpl<DuelMapper, Duel> implements Du
             d.setLeaderId(userId);
             d.setJoinMode(request.getJoinMode() == null ? DuelConstant.JOIN_MODE_FREE : request.getJoinMode());
             d.setHidden(Boolean.TRUE.equals(request.getHidden()) ? 1 : 0);
+            // 审核方式与 AI 预审：默认组长审核、AI 关
+            d.setReviewMode(request.getReviewMode() != null && request.getReviewMode() == DuelConstant.REVIEW_MODE_PEER
+                    ? DuelConstant.REVIEW_MODE_PEER : DuelConstant.REVIEW_MODE_LEADER);
+            d.setAiReview(Boolean.TRUE.equals(request.getAiReview()) ? 1 : 0);
             // 玩法模式：押金死斗必填押金（100~5000）；组队打卡无押金，落库存 0
             boolean teamMode = request.getMode() != null && request.getMode() == DuelConstant.DUEL_MODE_TEAM;
             ThrowUtils.throwIf(!teamMode && request.getDepositPerMember() == null,
@@ -148,6 +156,24 @@ public class DuelServiceImpl extends ServiceImpl<DuelMapper, Duel> implements Du
             return d;
         });
         return detail(userId, duel.getId());
+    }
+
+    @Override
+    public DuelVO updateSettings(Long userId, Long duelId, DuelUpdateRequest request) {
+        Duel duel = getRequiredDuel(duelId);
+        ThrowUtils.throwIf(!duel.getLeaderId().equals(userId), ErrorCode.NO_AUTH_ERROR, "仅组长可修改设置");
+        ThrowUtils.throwIf(duel.getStatus() != DuelConstant.DUEL_STATUS_RECRUITING,
+                ErrorCode.OPERATION_ERROR, "死斗已开始，审核设置已锁定");
+        if (request.getReviewMode() != null) {
+            duel.setReviewMode(request.getReviewMode() == DuelConstant.REVIEW_MODE_PEER
+                    ? DuelConstant.REVIEW_MODE_PEER : DuelConstant.REVIEW_MODE_LEADER);
+        }
+        if (request.getAiReview() != null) {
+            duel.setAiReview(request.getAiReview() ? 1 : 0);
+        }
+        updateById(duel);
+        cacheService.evict(CacheService.keyDuelAgg(duelId));
+        return detail(userId, duelId);
     }
 
     @Override
@@ -406,16 +432,68 @@ public class DuelServiceImpl extends ServiceImpl<DuelMapper, Duel> implements Du
                     duel.getId());
             member.setStatus(DuelConstant.MEMBER_STATUS_REMOVED);
             duelMemberMapper.updateById(member);
-            checkInPlanService.removeById(member.getPlanId());
             duel.setMemberCount(Math.max(0, duel.getMemberCount() - 1));
             duel.setTotalPool(Math.max(0, duel.getTotalPool() - member.getDeposit()));
+            if (duel.getStatus() == DuelConstant.DUEL_STATUS_RUNNING) {
+                // 被移除者本人的在途待审凭证直接收口（影子计划即将下架，无结算宿主）
+                duelBattleService.closePendingOfUser(duelId, targetUserId,
+                        "成员被移除，待审凭证自动通过");
+                // 组内互审：被移除者名下在途待审凭证按剩余成员重派
+                if (duel.getReviewMode() != null && duel.getReviewMode() == DuelConstant.REVIEW_MODE_PEER) {
+                    duelBattleService.reassignPending(duel, targetUserId);
+                }
+                // 进行中仅剩组长一人：小组没有存在必要，直接解散。
+                // 解散须在被移除者影子计划下架之前：待审凭证自动通过要沿其计划结算
+                List<DuelMember> remaining = activeMembers(duelId);
+                if (remaining.size() <= 1) {
+                    dissolveRunningDuel(duel, remaining);
+                    checkInPlanService.removeById(member.getPlanId());
+                    cacheService.evict(CacheService.keyDuelAgg(duelId));
+                    return null;
+                }
+            }
             updateById(duel);
+            checkInPlanService.removeById(member.getPlanId());
             // 组队打卡：共享 BOSS 随成员数缩小
             recalcSharedBoss(duel);
             cacheService.evict(CacheService.keyDuelAgg(duelId));
             return null;
         });
         return detail(userId, duelId);
+    }
+
+    /**
+     * 进行中局仅剩一人（必为组长，组长不可被移除）时解散，须在外层事务内调用：
+     * 待审凭证全部自动通过；押金局组长退回剩余押金（押金 − 已按天退还），
+     * removed_pool 不分配——组长无法靠移光成员吞掉他人的罚没份额；
+     * 影子计划下架、进行中弹劾终止、状态置为已解散并通知组长。
+     */
+    private void dissolveRunningDuel(Duel duel, List<DuelMember> remaining) {
+        Long duelId = duel.getId();
+        int approved = duelBattleService.approveAllPending(duelId, "小组仅剩一人已解散，待审凭证自动通过");
+        String refundDesc = "";
+        for (DuelMember last : remaining) {
+            if (!isTeamMode(duel)) {
+                int refunded = last.getRefunded() == null ? 0 : last.getRefunded();
+                int endRefund = Math.max(0, last.getDeposit() - refunded);
+                walletService.refund(last.getUserId(), endRefund, duelId, "小组仅剩一人自动解散，退还剩余押金");
+                refundDesc = "已退还剩余押金 " + endRefund + " 喵币。";
+                duel.setTotalPool(Math.max(0, duel.getTotalPool() - last.getDeposit()));
+            }
+            last.setStatus(DuelConstant.MEMBER_STATUS_QUIT);
+            duelMemberMapper.updateById(last);
+            checkInPlanService.removeById(last.getPlanId());
+            notificationService.notify(last.getUserId(), NotificationConstant.TYPE_DUEL_DISBANDED,
+                    "死斗已解散",
+                    "「" + duel.getDuelName() + "」成员仅剩你一人，小组已自动解散。" + refundDesc,
+                    duelId);
+        }
+        duelImpeachmentService.terminateOnLeaderChange(duelId);
+        duel.setStatus(DuelConstant.DUEL_STATUS_DISBANDED);
+        duel.setMemberCount(0);
+        updateById(duel);
+        log.info("死斗 {} 进行中仅剩一人自动解散：自动通过待审 {} 条，罚没池 {} 喵币不分配沉没",
+                duelId, approved, duel.getRemovedPool() == null ? 0 : duel.getRemovedPool());
     }
 
     @Override
@@ -784,6 +862,10 @@ public class DuelServiceImpl extends ServiceImpl<DuelMapper, Duel> implements Du
         vo.setEndDate(aggDuel.getEndDate());
         vo.setStatus(aggDuel.getStatus());
         vo.setHidden(aggDuel.getHidden() != null && aggDuel.getHidden() == 1);
+        boolean peerReview = aggDuel.getReviewMode() != null
+                && aggDuel.getReviewMode() == DuelConstant.REVIEW_MODE_PEER;
+        vo.setReviewMode(peerReview ? DuelConstant.REVIEW_MODE_PEER : DuelConstant.REVIEW_MODE_LEADER);
+        vo.setAiReview(aggDuel.getAiReview() != null && aggDuel.getAiReview() == 1);
         vo.setMemberCount(aggDuel.getMemberCount());
         vo.setMaxMembers(aggDuel.getMaxMembers());
         vo.setTotalPool(aggDuel.getTotalPool());
@@ -808,11 +890,19 @@ public class DuelServiceImpl extends ServiceImpl<DuelMapper, Duel> implements Du
         vo.setMembers(memberVOs);
         if (userId.equals(aggDuel.getLeaderId())) {
             vo.setMyRole("leader");
+        } else if (myMemberVo != null) {
+            vo.setMyRole("member");
+        }
+        // 待审数（个性化实时）：组长审核局=组长看全部；组内互审局=每位成员看派给自己的
+        if (peerReview && vo.getMyRole() != null) {
+            vo.setPendingCount(checkInEvidenceMapper.selectCount(new LambdaQueryWrapper<CheckInEvidence>()
+                    .eq(CheckInEvidence::getDuelId, duel.getId())
+                    .eq(CheckInEvidence::getReviewStatus, DuelConstant.REVIEW_STATUS_PENDING)
+                    .eq(CheckInEvidence::getAssigneeId, userId)));
+        } else if (!peerReview && "leader".equals(vo.getMyRole())) {
             vo.setPendingCount(checkInEvidenceMapper.selectCount(new LambdaQueryWrapper<CheckInEvidence>()
                     .eq(CheckInEvidence::getDuelId, duel.getId())
                     .eq(CheckInEvidence::getReviewStatus, DuelConstant.REVIEW_STATUS_PENDING)));
-        } else if (myMemberVo != null) {
-            vo.setMyRole("member");
         }
         // 我的影子计划（实时查询，个性化字段）
         DuelMember mine = getMember(duel.getId(), userId);

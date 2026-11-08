@@ -36,4 +36,9 @@ public interface NotificationConstant {
      * 收到点赞
      */
     int TYPE_LIKE = 6;
+
+    /**
+     * 死斗自动解散（进行中仅剩一人）
+     */
+    int TYPE_DUEL_DISBANDED = 7;
 }

@@ -56,9 +56,14 @@ public class CheckInEvidence implements Serializable {
     private Integer reviewStatus;
 
     /**
-     * 审核人id（组长）
+     * 审核人id（人工终审人；AI 免审/超时自动通过时为空）
      */
     private Long reviewerId;
+
+    /**
+     * 互审派单审核员id（提交时按错位环算定；组长审核模式为空）
+     */
+    private Long assigneeId;
 
     /**
      * 是否组长自审（公示标记）

@@ -2,6 +2,7 @@ package com.senze.miaokaka.service;
 
 import com.baomidou.mybatisplus.spring.service.IService;
 import com.senze.miaokaka.model.dto.duel.DuelCreateRequest;
+import com.senze.miaokaka.model.dto.duel.DuelUpdateRequest;
 import com.senze.miaokaka.model.dto.duel.JoinApplicationReviewRequest;
 import com.senze.miaokaka.model.entity.Duel;
 import com.senze.miaokaka.model.vo.DuelVO;
@@ -17,6 +18,11 @@ import java.util.List;
 public interface DuelService extends IService<Duel> {
 
     DuelVO create(Long userId, DuelCreateRequest request);
+
+    /**
+     * 招募期修改审核设置（审核方式/AI 预审开关）：仅组长、仅招募中，开赛后锁定
+     */
+    DuelVO updateSettings(Long userId, Long duelId, DuelUpdateRequest request);
 
     DuelVO join(Long userId, Long duelId);
 

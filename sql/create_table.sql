@@ -42,52 +42,12 @@ create table `check_in_record`
     index idx_plan_date (plan_id, check_in_date)
 ) comment='打卡记录表' collate = utf8mb4_unicode_ci;
 
--- 3. 小组表（二期）
-create table `team`
-(
-    id            bigint       not null auto_increment comment '小组id' primary key,
-    team_name     varchar(128) not null comment '小组名称',
-    team_avatar   varchar(1024)         default null comment '小组封面/头像',
-    team_type     tinyint               default 0 not null comment '小组类型 (0:学习小组, 1:运动小组, 2:阅读小组, 3:其他)',
-    description   varchar(512)          default null comment '小组简介/描述',
-    leader_id     bigint       not null comment '组长id',
-    location      varchar(255)          default null comment '所属地点',
-    status        tinyint               default 0 not null comment '状态 (0:正常, 1:已解散, 2:已封禁)',
-    create_time   datetime     default current_timestamp not null comment '创建时间',
-    update_time   datetime     default current_timestamp not null on update current_timestamp comment '更新时间',
-    is_delete     tinyint               default 0 not null comment '是否删除',
-    index idx_leader_id (leader_id),
-    index idx_status (status),
-    index idx_team_type (team_type)
-) comment='小组表' collate = utf8mb4_unicode_ci;
-
--- 4. 小组计划模板表（二期）
-create table `group_plan_template`
-(
-    id            bigint       not null auto_increment comment '模板id' primary key,
-    team_id       bigint       not null comment '关联小组id',
-    template_name varchar(128) not null comment '模板名称',
-    template_desc varchar(512)          default null comment '模板描述',
-    plan_type     tinyint               default 0 not null comment '计划类型 (0:学习, 1:运动, 2:阅读, 3:其他)',
-    target_days   int                   default 0 comment '目标连续打卡天数',
-    daily_tasks   json                  default null comment '每日任务配置 (JSON数组)',
-    total_tasks   int                   default 1 comment '总任务数',
-    is_default    tinyint               default 0 not null comment '是否为小组默认模板 (0:否, 1:是)',
-    create_time   datetime     default current_timestamp not null comment '创建时间',
-    update_time   datetime     default current_timestamp not null on update current_timestamp comment '更新时间',
-    is_delete     tinyint               default 0 not null comment '是否删除',
-    index idx_team_id (team_id),
-    index idx_is_default (is_default)
-) comment='小组计划模板表' collate = utf8mb4_unicode_ci;
-
--- 5. 打卡计划表（连击为计划级）
+-- 3. 打卡计划表（连击为计划级）
 create table `check_in_plan`
 (
     id              bigint       not null auto_increment comment '计划id' primary key,
     user_id         bigint       not null comment '用户id',
-    team_id         bigint                default null comment '关联小组id（二期）',
-    template_id     bigint                default null comment '引用的小组模板id（二期）',
-    plan_source     tinyint               default 0 not null comment '计划来源 (0:个人创建, 1:小组模板, 2:死斗挑战)',
+    plan_source     tinyint               default 0 not null comment '计划来源 (0:个人创建, 2:死斗挑战)',
     plan_mode       tinyint               default 0 not null comment '计划模式 (0:普通, 1:10分钟习惯，纯标记由前端实现计时)',
     duel_id         bigint                default null comment '关联死斗id（影子计划专属）',
     plan_name       varchar(128) not null comment '计划名称',
@@ -107,14 +67,12 @@ create table `check_in_plan`
     update_time     datetime     default current_timestamp not null on update current_timestamp comment '更新时间',
     is_delete       tinyint               default 0 not null comment '是否删除',
     index idx_user_id (user_id),
-    index idx_team_id (team_id),
-    index idx_template_id (template_id),
     index idx_plan_source (plan_source),
     index idx_duel_id (duel_id),
     index idx_status (status)
 ) comment='打卡计划表' collate = utf8mb4_unicode_ci;
 
--- 6. 猫精灵表（每计划一只猫，多猫方案）
+-- 4. 猫精灵表（每计划一只猫，多猫方案）
 create table `cat_spirit`
 (
     id                  bigint       not null auto_increment comment '猫精灵id' primary key,
@@ -140,7 +98,7 @@ create table `cat_spirit`
     index idx_boss_level (boss_level)
 ) comment='猫精灵表' collate = utf8mb4_unicode_ci;
 
--- 7. 喵币流水表（余额只随流水变动，balance_after 可重放对账）
+-- 5. 喵币流水表（余额只随流水变动，balance_after 可重放对账）
 create table `coin_transaction`
 (
     id            bigint auto_increment comment '流水id' primary key,
@@ -155,7 +113,7 @@ create table `coin_transaction`
     index idx_biz (biz_id)
 ) comment='喵币流水表' collate = utf8mb4_unicode_ci;
 
--- 8. 习惯死斗挑战表
+-- 6. 习惯死斗挑战表
 create table `duel`
 (
     id                  bigint       not null auto_increment comment '死斗id' primary key,
@@ -184,7 +142,7 @@ create table `duel`
     index idx_end_date (end_date)
 ) comment='习惯死斗挑战表' collate = utf8mb4_unicode_ci;
 
--- 9. 死斗成员表
+-- 7. 死斗成员表
 create table `duel_member`
 (
     id            bigint auto_increment comment '成员id' primary key,
@@ -201,7 +159,7 @@ create table `duel_member`
     index idx_plan (plan_id)
 ) comment='死斗成员表' collate = utf8mb4_unicode_ci;
 
--- 10. 打卡凭证与审核表（死斗专属）
+-- 8. 打卡凭证与审核表（死斗专属）
 create table `check_in_evidence`
 (
     id             bigint auto_increment comment '凭证id' primary key,
@@ -222,7 +180,7 @@ create table `check_in_evidence`
     index idx_duel_status (duel_id, review_status)
 ) comment='打卡凭证与审核表' collate = utf8mb4_unicode_ci;
 
--- 11. 死斗加入申请表（审批加入模式）
+-- 9. 死斗加入申请表（审批加入模式）
 create table `duel_join_request`
 (
     id           bigint auto_increment comment '申请id' primary key,
@@ -409,3 +367,8 @@ alter table `duel` add column `boss_killed` int not null default 0 comment '本�
 alter table `duel` add column `boss_quota` int not null default 3 comment '共享BOSS配额（ceil(totalDays/7)）' after `boss_killed`;
 alter table `check_in_plan` add column `boss_killed` int not null default 0 comment '本计划已击杀BOSS数（个人局配额追踪）' after `current_streak`;
 alter table `check_in_plan` add column `boss_quota` int not null default 1 comment '本计划BOSS配额（ceil(targetDays/7)）' after `boss_killed`;
+
+-- 审核改版（2026-11-08 增补：审核方式可选组长审核/组内互审，AI 预审按局开关；互审派单按修正版错位环算定落库）
+alter table `duel` add column `review_mode` tinyint not null default 0 comment '审核方式 (0:组长审核, 1:组内互审)' after `join_mode`;
+alter table `duel` add column `ai_review` tinyint not null default 0 comment 'AI 预审 (0:关闭, 1:开启；AI建议通过直接免人工，建议驳回转人工)' after `review_mode`;
+alter table `check_in_evidence` add column `assignee_id` bigint default null comment '互审派单审核员id（提交时按错位环算定；组长审核模式为空）' after `reviewer_id`;

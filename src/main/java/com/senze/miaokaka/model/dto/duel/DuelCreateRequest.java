@@ -80,5 +80,17 @@ public class DuelCreateRequest implements Serializable {
      */
     private Boolean hidden;
 
+    /**
+     * 审核方式 (0:组长审核, 1:组内互审；默认 0)
+     */
+    @Min(value = 0, message = "审核方式不合法")
+    @Max(value = 1, message = "审核方式不合法")
+    private Integer reviewMode = 0;
+
+    /**
+     * 是否开启 AI 预审（开启后 AI 建议通过的凭证直接免人工，建议驳回的转人工复核）
+     */
+    private Boolean aiReview;
+
     private static final long serialVersionUID = 1L;
 }

@@ -43,6 +43,16 @@ public class DuelVO implements Serializable {
      */
     private Boolean hidden;
 
+    /**
+     * 审核方式 (0:组长审核, 1:组内互审)
+     */
+    private Integer reviewMode;
+
+    /**
+     * 是否开启 AI 预审
+     */
+    private Boolean aiReview;
+
     private Integer depositPerMember;
 
     private Integer totalDays;

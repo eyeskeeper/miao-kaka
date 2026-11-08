@@ -3,6 +3,7 @@ package com.senze.miaokaka.controller;
 import com.senze.miaokaka.common.BaseResponse;
 import com.senze.miaokaka.common.ResultUtils;
 import com.senze.miaokaka.model.dto.duel.DuelCreateRequest;
+import com.senze.miaokaka.model.dto.duel.DuelUpdateRequest;
 import com.senze.miaokaka.model.dto.duel.ImpeachInitiateRequest;
 import com.senze.miaokaka.model.dto.duel.ImpeachmentVoteRequest;
 import com.senze.miaokaka.model.dto.duel.InviteUseRequest;
@@ -16,6 +17,7 @@ import com.senze.miaokaka.model.vo.InviteUseResultVO;
 import com.senze.miaokaka.model.vo.InviteVO;
 import com.senze.miaokaka.model.vo.JoinRequestVO;
 import com.senze.miaokaka.model.vo.NudgeSentVO;
+import com.senze.miaokaka.model.vo.ReviewHistoryVO;
 import com.senze.miaokaka.model.vo.ReviewItemVO;
 import com.senze.miaokaka.service.DuelBattleService;
 import com.senze.miaokaka.service.DuelImpeachmentService;
@@ -32,6 +34,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -74,6 +77,15 @@ public class DuelController {
     public BaseResponse<DuelVO> create(@Valid @RequestBody DuelCreateRequest request, HttpServletRequest servletRequest) {
         User user = userService.getLoginUser(servletRequest);
         return ResultUtils.success(duelService.create(user.getId(), request));
+    }
+
+    @PutMapping("/{duelId}")
+    @Operation(summary = "修改审核设置", description = "仅组长、仅招募中（开赛后锁定）；可改审核方式 reviewMode（0=组长审核/1=组内互审）与 AI 预审开关 aiReview，不传的字段不改")
+    public BaseResponse<DuelVO> updateSettings(@PathVariable Long duelId,
+                                               @Valid @RequestBody DuelUpdateRequest request,
+                                               HttpServletRequest servletRequest) {
+        User user = userService.getLoginUser(servletRequest);
+        return ResultUtils.success(duelService.updateSettings(user.getId(), duelId, request));
     }
 
     @GetMapping("/list")
@@ -207,7 +219,7 @@ public class DuelController {
     }
 
     @PostMapping("/{duelId}/check_in")
-    @Operation(summary = "死斗打卡", description = "multipart 上传照片凭证（≤5MB jpg/png/webp）；记录进入待审核，组长（或AI）审核通过才生效")
+    @Operation(summary = "死斗打卡", description = "multipart 上传照片凭证（≤5MB jpg/png/webp）；记录进入待审核（组内互审局按错位环派单；开 AI 预审的建议通过直接免人工），审核通过才生效")
     public BaseResponse<CheckInResultVO> checkIn(@PathVariable Long duelId,
                                                  @RequestParam("image") MultipartFile image,
                                                  @RequestParam(value = "remark", required = false) String remark,
@@ -217,14 +229,24 @@ public class DuelController {
     }
 
     @GetMapping("/{duelId}/review/pending")
-    @Operation(summary = "待审核凭证列表", description = "仅组长")
-    public BaseResponse<List<ReviewItemVO>> pendingList(@PathVariable Long duelId, HttpServletRequest servletRequest) {
+    @Operation(summary = "待审核凭证列表", description = "组长审核局：仅组长看全部；组内互审局：默认 scope=mine 每位成员看派给自己的，scope=all 仅组长看全队（只读）")
+    public BaseResponse<List<ReviewItemVO>> pendingList(@PathVariable Long duelId,
+                                                        @RequestParam(defaultValue = "mine") String scope,
+                                                        HttpServletRequest servletRequest) {
         User user = userService.getLoginUser(servletRequest);
-        return ResultUtils.success(duelBattleService.pendingList(user.getId(), duelId));
+        return ResultUtils.success(duelBattleService.pendingList(user.getId(), duelId, scope));
+    }
+
+    @GetMapping("/{duelId}/review/history")
+    @Operation(summary = "审核记录（组内公示）", description = "最近 50 条通过/驳回记录，含审核人与理由；组内成员可见")
+    public BaseResponse<List<ReviewHistoryVO>> reviewHistory(@PathVariable Long duelId,
+                                                             HttpServletRequest servletRequest) {
+        User user = userService.getLoginUser(servletRequest);
+        return ResultUtils.success(duelBattleService.reviewHistory(user.getId(), duelId));
     }
 
     @PostMapping("/{duelId}/review")
-    @Operation(summary = "审核凭证", description = "仅组长；通过触发猫事件结算，驳回必须给理由；结束时的待审凭证结算时自动通过")
+    @Operation(summary = "审核凭证", description = "组长审核局仅组长；组内互审局仅派单审核人；通过触发猫事件结算，驳回必须给理由；待审超 24 小时自动通过")
     public BaseResponse<CheckInResultVO> review(@PathVariable Long duelId,
                                                 @Valid @RequestBody ReviewRequest request,
                                                 HttpServletRequest servletRequest) {
