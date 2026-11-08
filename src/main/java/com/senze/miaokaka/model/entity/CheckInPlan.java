@@ -32,17 +32,7 @@ public class CheckInPlan implements Serializable {
     private Long userId;
 
     /**
-     * 关联小组id（二期）
-     */
-    private Long teamId;
-
-    /**
-     * 引用的小组模板id（二期）
-     */
-    private Long templateId;
-
-    /**
-     * 计划来源 (0:个人创建, 1:小组模板, 2:死斗挑战)
+     * 计划来源 (0:个人创建, 2:死斗挑战)
      */
     private Integer planSource;
 

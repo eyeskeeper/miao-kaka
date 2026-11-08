@@ -26,7 +26,7 @@ public interface CheckInConstant {
     // region 计划来源
 
     int PLAN_SOURCE_PERSONAL = 0;
-    int PLAN_SOURCE_TEAM_TEMPLATE = 1;
+    // 1 为已废弃的小组模板来源预留位，数据兼容不复用；死斗固定为 2
     int PLAN_SOURCE_DUEL = 2;
 
     // endregion
