@@ -52,10 +52,17 @@ public class PlanCreateRequest implements Serializable {
     private String remindTime;
 
     /**
-     * 每日任务列表（可选，1~5 项）
+     * 每日任务列表（可选，1~5 项；10 分钟习惯模式忽略清单）
      */
     @Size(max = 5, message = "每日任务最多 5 项")
     private List<String> dailyTasks;
+
+    /**
+     * 计划模式 (0:普通打卡, 1:10分钟习惯——计时由前端本地实现，后端只做标记)；默认 0
+     */
+    @Min(value = 0, message = "计划模式不合法")
+    @Max(value = 1, message = "计划模式不合法")
+    private Integer planMode = 0;
 
     private static final long serialVersionUID = 1L;
 }

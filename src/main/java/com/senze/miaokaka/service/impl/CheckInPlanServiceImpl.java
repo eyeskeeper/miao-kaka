@@ -55,14 +55,18 @@ public class CheckInPlanServiceImpl extends ServiceImpl<CheckInPlanMapper, Check
         plan.setPlanType(request.getPlanType() == null ? 0 : request.getPlanType());
         plan.setTargetDays(request.getTargetDays() == null ? 0 : request.getTargetDays());
         plan.setRemindTime(StrUtil.isBlank(request.getRemindTime()) ? null : request.getRemindTime());
-        plan.setDailyTasks(toDailyTasksJson(request.getDailyTasks()));
+        // 计划模式：1=10分钟习惯（计时由前端本地实现，后端只做标记）；此模式无任务清单，忽略传入
+        boolean tenMinMode = request.getPlanMode() != null && request.getPlanMode() == 1;
+        plan.setPlanMode(tenMinMode ? 1 : 0);
+        List<String> tasks = tenMinMode ? null : request.getDailyTasks();
+        plan.setDailyTasks(toDailyTasksJson(tasks));
         plan.setCurrentStreak(0);
         plan.setMaxStreak(0);
         // BOSS 配额：每 7 天 1 只（21 天 3 只）
         plan.setBossQuota((int) Math.ceil(
                 (request.getTargetDays() == null ? 0 : request.getTargetDays()) / 7.0));
         plan.setBossKilled(0);
-        plan.setTotalTasks(request.getDailyTasks() == null ? 1 : request.getDailyTasks().size());
+        plan.setTotalTasks(tasks == null ? 1 : tasks.size());
         plan.setTaskProgress("");
         plan.setCompletedTasks(0);
         plan.setStatus(CheckInConstant.PLAN_STATUS_ACTIVE);
@@ -203,6 +207,7 @@ public class CheckInPlanServiceImpl extends ServiceImpl<CheckInPlanMapper, Check
         vo.setPlanName(plan.getPlanName());
         vo.setPlanDesc(plan.getPlanDesc());
         vo.setPlanType(plan.getPlanType());
+        vo.setPlanMode(plan.getPlanMode() == null ? 0 : plan.getPlanMode());
         vo.setTargetDays(plan.getTargetDays());
         vo.setRemindTime(plan.getRemindTime());
         vo.setDailyTasks(fromDailyTasksJson(plan.getDailyTasks()));

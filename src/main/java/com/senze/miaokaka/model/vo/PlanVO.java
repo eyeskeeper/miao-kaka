@@ -25,6 +25,11 @@ public class PlanVO implements Serializable {
      */
     private Integer planType;
 
+    /**
+     * 计划模式 (0:普通打卡, 1:10分钟习惯——前端本地计时)
+     */
+    private Integer planMode;
+
     private Integer targetDays;
 
     private String remindTime;
