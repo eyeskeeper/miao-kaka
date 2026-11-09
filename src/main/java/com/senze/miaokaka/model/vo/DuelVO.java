@@ -98,9 +98,19 @@ public class DuelVO implements Serializable {
     private Integer myApplyStatus;
 
     /**
-     * 组长视角：待审核凭证数
+     * 组长视角：待审核凭证数（互审局=派给我的）
      */
     private Long pendingCount;
+
+    /**
+     * 互审局组长视角：待仲裁上诉数
+     */
+    private Long appealPendingCount;
+
+    /**
+     * 我是否已用掉本局举报（每人每局限一次）
+     */
+    private Boolean myReported;
 
     /**
      * 进行中的弹劾（无则 null，已结束的不展示）

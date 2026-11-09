@@ -13,6 +13,7 @@ import com.senze.miaokaka.model.vo.AdminStatsVO;
 import com.senze.miaokaka.model.vo.AnnouncementVO;
 import com.senze.miaokaka.model.vo.UserVO;
 import com.senze.miaokaka.service.AdminService;
+import com.senze.miaokaka.service.DuelAppealService;
 import com.senze.miaokaka.service.UserService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -47,6 +48,9 @@ public class AdminController {
 
     @Resource
     private AdminService adminService;
+
+    @Resource
+    private DuelAppealService duelAppealService;
 
     @PostMapping("/user")
     @Operation(summary = "建号", description = "运营手动开号，赠 1000 喵币与注册一致")
@@ -111,5 +115,24 @@ public class AdminController {
     @Operation(summary = "数据看板", description = "用户/打卡量（今日·昨日·本周·累计，含 DAU 去重人数）/局数统计 + 近 7 天趋势")
     public BaseResponse<AdminStatsVO> stats() {
         return ResultUtils.success(adminService.stats());
+    }
+
+    @GetMapping("/report/page")
+    @Operation(summary = "举报分页", description = "含凭证图/审核链/上诉链；状态筛选 0待处理/1改判/2维持/3无法处理；待处理在前")
+    public BaseResponse<com.baomidou.mybatisplus.extension.plugins.pagination.Page<com.senze.miaokaka.model.vo.ReportAdminVO>> reportPage(
+            @RequestParam(defaultValue = "1") long current,
+            @RequestParam(defaultValue = "20") long pageSize,
+            @RequestParam(required = false) Integer status) {
+        return ResultUtils.success(duelAppealService.reportPage(current, pageSize, status));
+    }
+
+    @PostMapping("/report/{reportId}/resolve")
+    @Operation(summary = "处理举报", description = "改判通过=补回当日份额+补发事件结算（仅进行中局且提交者在册，互审局原审核人与组长双留痕误判）；维持原判/无法处理则结案存档")
+    public BaseResponse<com.senze.miaokaka.model.vo.CheckInResultVO> resolveReport(
+            @PathVariable Long reportId,
+            @Valid @RequestBody com.senze.miaokaka.model.dto.duel.ReportResolveRequest request,
+            HttpServletRequest servletRequest) {
+        User operator = userService.getLoginUser(servletRequest);
+        return ResultUtils.success(duelAppealService.resolveReport(operator.getId(), reportId, request));
     }
 }

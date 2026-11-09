@@ -154,6 +154,13 @@ public class CheckInRecordServiceImpl extends ServiceImpl<CheckInRecordMapper, C
         return result;
     }
 
+    @Override
+    public CheckInResultVO restoreRejectedCheckIn(Long userId, Long planId, Long recordId) {
+        CheckInResultVO result = transactionTemplate.execute(status -> doRestoreRejectedInTx(userId, planId, recordId));
+        result.setEncouragement(aiAssistantService.generateEncouragement(result.getCatName(), result.getEventDesc()));
+        return result;
+    }
+
     // region 每日任务勾选（部分打卡）
 
     @Override
@@ -257,6 +264,27 @@ public class CheckInRecordServiceImpl extends ServiceImpl<CheckInRecordMapper, C
      * 死斗凭证审核通过的结算：记录置为正常、回溯重算连击、事件在通过那一刻才触发
      */
     private CheckInResultVO doSettleApprovedInTx(Long userId, Long planId, Long recordId) {
+        CheckInRecord record = loadCheckInContext(userId, planId, recordId);
+        ThrowUtils.throwIf(record.getStatus() != CheckInConstant.RECORD_STATUS_PENDING,
+                ErrorCode.OPERATION_ERROR, "该记录不在待审核状态");
+        return finalizeCheckIn(userId, planId, record);
+    }
+
+    /**
+     * 上诉/举报改判：被驳回（异常态）的记录恢复为正常，补回追回款由调用方处理，
+     * 连击回溯与猫事件结算与审核通过完全等价（打过的卡理应打过的仗）
+     */
+    private CheckInResultVO doRestoreRejectedInTx(Long userId, Long planId, Long recordId) {
+        CheckInRecord record = loadCheckInContext(userId, planId, recordId);
+        ThrowUtils.throwIf(record.getStatus() != CheckInConstant.RECORD_STATUS_ABNORMAL,
+                ErrorCode.OPERATION_ERROR, "该记录不在被驳回状态");
+        return finalizeCheckIn(userId, planId, record);
+    }
+
+    /**
+     * 结算公共上下文校验：用户/影子计划/记录归属
+     */
+    private CheckInRecord loadCheckInContext(Long userId, Long planId, Long recordId) {
         User user = userMapper.selectById(userId);
         CheckInPlan plan = checkInPlanMapper.selectById(planId);
         ThrowUtils.throwIf(plan == null || !plan.getUserId().equals(userId),
@@ -266,8 +294,15 @@ public class CheckInRecordServiceImpl extends ServiceImpl<CheckInRecordMapper, C
                         || !record.getUserId().equals(userId)
                         || !record.getPlanId().equals(planId),
                 ErrorCode.NOT_FOUND_ERROR, "打卡记录不存在");
-        ThrowUtils.throwIf(record.getStatus() != CheckInConstant.RECORD_STATUS_PENDING,
-                ErrorCode.OPERATION_ERROR, "该记录不在待审核状态");
+        return record;
+    }
+
+    /**
+     * 记录置正常 + 连击回溯 + 猫事件结算（审核通过与改判共用）
+     */
+    private CheckInResultVO finalizeCheckIn(Long userId, Long planId, CheckInRecord record) {
+        User user = userMapper.selectById(userId);
+        CheckInPlan plan = checkInPlanMapper.selectById(planId);
         CatSpirit cat = catSpiritService.getByPlanId(planId);
         ThrowUtils.throwIf(cat == null, ErrorCode.SYSTEM_ERROR, "猫精灵数据缺失");
 

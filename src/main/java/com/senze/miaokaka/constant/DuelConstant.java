@@ -47,6 +47,24 @@ public interface DuelConstant {
 
     // endregion
 
+    // region 上诉状态
+
+    int APPEAL_STATUS_PENDING = 0;
+    int APPEAL_STATUS_OVERTURNED = 1;
+    int APPEAL_STATUS_UPHELD = 2;
+    int APPEAL_STATUS_TIMEOUT_OVERTURNED = 3;
+
+    // endregion
+
+    // region 举报状态
+
+    int REPORT_STATUS_PENDING = 0;
+    int REPORT_STATUS_OVERTURNED = 1;
+    int REPORT_STATUS_UPHELD = 2;
+    int REPORT_STATUS_UNPROCESSABLE = 3;
+
+    // endregion
+
     // region 加入申请状态
 
     int JOIN_REQUEST_PENDING = 0;

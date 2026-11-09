@@ -48,6 +48,12 @@ public interface CheckInRecordService extends IService<CheckInRecord> {
     CheckInResultVO settleApprovedCheckIn(Long userId, Long planId, Long recordId);
 
     /**
+     * 上诉/举报改判入口：被驳回（异常态）的记录恢复为正常、重算连击并补发一次事件结算。
+     * 被追回的当日份额由调用方（上诉/举报服务）负责补偿。返回事件结果（含鼓励语）。
+     */
+    CheckInResultVO restoreRejectedCheckIn(Long userId, Long planId, Long recordId);
+
+    /**
      * 每日任务勾选（部分打卡）：维护计划位图，勾满最后一项自动完成当日打卡
      * （死斗影子计划不自动打卡——需走照片凭证入口）。
      * 当日已有任意状态打卡记录后冻结勾选。

@@ -41,4 +41,14 @@ public interface NotificationConstant {
      * 死斗自动解散（进行中仅剩一人）
      */
     int TYPE_DUEL_DISBANDED = 7;
+
+    /**
+     * 收到凭证上诉（互审局上诉提交，通知组长仲裁）
+     */
+    int TYPE_APPEAL_SUBMITTED = 8;
+
+    /**
+     * 上诉处理结果（改判通过/维持驳回，通知上诉人）
+     */
+    int TYPE_APPEAL_RESOLVED = 9;
 }

@@ -13,6 +13,7 @@ import com.senze.miaokaka.model.entity.CheckInRecord;
 import com.senze.miaokaka.model.entity.Duel;
 import com.senze.miaokaka.model.entity.DuelMember;
 import com.senze.miaokaka.service.CacheService;
+import com.senze.miaokaka.service.DuelAppealService;
 import com.senze.miaokaka.service.DuelSettlementService;
 import com.senze.miaokaka.service.WalletService;
 import com.senze.miaokaka.utils.SettlementCalculator;
@@ -43,6 +44,8 @@ public class DuelSettlementServiceImpl extends ServiceImpl<DuelMapper, Duel>
     private final CheckInEvidenceMapper checkInEvidenceMapper;
 
     private final WalletService walletService;
+
+    private final DuelAppealService duelAppealService;
 
     private final TransactionTemplate transactionTemplate;
 
@@ -117,6 +120,8 @@ public class DuelSettlementServiceImpl extends ServiceImpl<DuelMapper, Duel>
 
         // 宽容条款：结束时任然待审核的记录自动视为通过
         autoApprovePending(duelId);
+        // 组内救济通道随局关闭：未决上诉统一失效（维持原判）
+        duelAppealService.invalidatePending(duelId);
 
         // 结算范围：剩余在册成员（已退出/已移除的已即时结清，不再参与）
         List<DuelMember> members = duelMemberMapper.selectList(new LambdaQueryWrapper<DuelMember>()

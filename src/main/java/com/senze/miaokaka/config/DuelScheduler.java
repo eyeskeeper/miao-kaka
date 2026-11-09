@@ -1,6 +1,7 @@
 package com.senze.miaokaka.config;
 
 import com.senze.miaokaka.service.DuelBattleService;
+import com.senze.miaokaka.service.DuelAppealService;
 import com.senze.miaokaka.service.DuelImpeachmentService;
 import com.senze.miaokaka.service.DuelService;
 import com.senze.miaokaka.service.DuelSettlementService;
@@ -26,6 +27,8 @@ public class DuelScheduler {
     private final DuelImpeachmentService duelImpeachmentService;
 
     private final DuelBattleService duelBattleService;
+
+    private final DuelAppealService duelAppealService;
 
     /**
      * 每日 00:20（北京时间，随服务器时区）开赛扫描
@@ -57,13 +60,18 @@ public class DuelScheduler {
     }
 
     /**
-     * 每小时整点：进行中局提交超 24 小时仍待审的凭证自动通过（组长审核/组内互审一致）
+     * 每小时整点：进行中局提交超 24 小时仍待审的凭证自动通过（组长审核/组内互审一致）；
+     * 待仲裁上诉超 48 小时未处理自动改判通过（不作为的代价由不作为方承担）
      */
     @Scheduled(cron = "0 0 * * * ?")
     public void autoApproveOverdueEvidence() {
         int approved = duelBattleService.autoApproveOverdue();
         if (approved > 0) {
             log.info("定时任务：超时自动通过待审凭证 {} 条", approved);
+        }
+        int overturned = duelAppealService.resolveOverdue();
+        if (overturned > 0) {
+            log.info("定时任务：超时自动改判上诉 {} 条", overturned);
         }
     }
 }

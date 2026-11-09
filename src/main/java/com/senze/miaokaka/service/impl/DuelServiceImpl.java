@@ -15,6 +15,8 @@ import com.senze.miaokaka.exception.ThrowUtils;
 import com.senze.miaokaka.mapper.DuelMapper;
 import com.senze.miaokaka.mapper.DuelJoinRequestMapper;
 import com.senze.miaokaka.mapper.DuelMemberMapper;
+import com.senze.miaokaka.mapper.DuelReportMapper;
+import com.senze.miaokaka.mapper.EvidenceAppealMapper;
 import com.senze.miaokaka.mapper.CheckInEvidenceMapper;
 import com.senze.miaokaka.mapper.CheckInRecordMapper;
 import com.senze.miaokaka.mapper.UserMapper;
@@ -27,12 +29,15 @@ import com.senze.miaokaka.model.entity.CheckInRecord;
 import com.senze.miaokaka.model.entity.Duel;
 import com.senze.miaokaka.model.entity.DuelJoinRequest;
 import com.senze.miaokaka.model.entity.DuelMember;
+import com.senze.miaokaka.model.entity.DuelReport;
+import com.senze.miaokaka.model.entity.EvidenceAppeal;
 import com.senze.miaokaka.model.entity.User;
 import com.senze.miaokaka.model.vo.DuelAggData;
 import com.senze.miaokaka.model.vo.DuelVO;
 import com.senze.miaokaka.model.vo.JoinRequestVO;
 import com.senze.miaokaka.service.CacheService;
 import com.senze.miaokaka.service.CheckInPlanService;
+import com.senze.miaokaka.service.DuelAppealService;
 import com.senze.miaokaka.service.DuelBattleService;
 import com.senze.miaokaka.service.DuelImpeachmentService;
 import com.senze.miaokaka.service.DuelService;
@@ -75,6 +80,10 @@ public class DuelServiceImpl extends ServiceImpl<DuelMapper, Duel> implements Du
 
     private final CheckInEvidenceMapper checkInEvidenceMapper;
 
+    private final EvidenceAppealMapper evidenceAppealMapper;
+
+    private final DuelReportMapper duelReportMapper;
+
     private final UserMapper userMapper;
 
     private final WalletService walletService;
@@ -84,6 +93,8 @@ public class DuelServiceImpl extends ServiceImpl<DuelMapper, Duel> implements Du
     private final DuelImpeachmentService duelImpeachmentService;
 
     private final DuelBattleService duelBattleService;
+
+    private final DuelAppealService duelAppealService;
 
     private final NotificationService notificationService;
 
@@ -489,6 +500,8 @@ public class DuelServiceImpl extends ServiceImpl<DuelMapper, Duel> implements Du
                     duelId);
         }
         duelImpeachmentService.terminateOnLeaderChange(duelId);
+        // 救济通道随局关闭：未决上诉统一失效（维持原判）
+        duelAppealService.invalidatePending(duelId);
         duel.setStatus(DuelConstant.DUEL_STATUS_DISBANDED);
         duel.setMemberCount(0);
         updateById(duel);
@@ -903,6 +916,19 @@ public class DuelServiceImpl extends ServiceImpl<DuelMapper, Duel> implements Du
             vo.setPendingCount(checkInEvidenceMapper.selectCount(new LambdaQueryWrapper<CheckInEvidence>()
                     .eq(CheckInEvidence::getDuelId, duel.getId())
                     .eq(CheckInEvidence::getReviewStatus, DuelConstant.REVIEW_STATUS_PENDING)));
+        }
+        // 互审局组长：待仲裁上诉数（个性化实时）
+        if (peerReview && "leader".equals(vo.getMyRole())) {
+            vo.setAppealPendingCount(evidenceAppealMapper.selectCount(
+                    new LambdaQueryWrapper<EvidenceAppeal>()
+                            .eq(EvidenceAppeal::getDuelId, duel.getId())
+                            .eq(EvidenceAppeal::getStatus, DuelConstant.APPEAL_STATUS_PENDING)));
+        }
+        // 我是否已用掉本局举报（每人每局限一次，前端据此收起举报按钮）
+        if (vo.getMyRole() != null) {
+            vo.setMyReported(duelReportMapper.selectCount(new LambdaQueryWrapper<DuelReport>()
+                    .eq(DuelReport::getDuelId, duel.getId())
+                    .eq(DuelReport::getReporterId, userId)) > 0);
         }
         // 我的影子计划（实时查询，个性化字段）
         DuelMember mine = getMember(duel.getId(), userId);

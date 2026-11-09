@@ -372,3 +372,36 @@ alter table `check_in_plan` add column `boss_quota` int not null default 1 comme
 alter table `duel` add column `review_mode` tinyint not null default 0 comment '审核方式 (0:组长审核, 1:组内互审)' after `join_mode`;
 alter table `duel` add column `ai_review` tinyint not null default 0 comment 'AI 预审 (0:关闭, 1:开启；AI建议通过直接免人工，建议驳回转人工)' after `review_mode`;
 alter table `check_in_evidence` add column `assignee_id` bigint default null comment '互审派单审核员id（提交时按错位环算定；组长审核模式为空）' after `reviewer_id`;
+
+-- 审核上诉与举报（2026-11-09 增补：互审局驳回48h内可上诉组长仲裁，超时自动改判；组长局驳回直接举报，互审局上诉维持后可举报；admin 可改判未结算局）
+create table `evidence_appeal`
+(
+    id            bigint auto_increment comment '上诉id' primary key,
+    evidence_id   bigint       not null comment '凭证id（每凭证限一条上诉）',
+    duel_id       bigint       not null comment '死斗id',
+    appealer_id   bigint       not null comment '上诉人（凭证提交者本人）',
+    reason        varchar(255) not null comment '上诉理由',
+    status        tinyint               default 0 not null comment '状态 (0:待组长仲裁, 1:改判通过, 2:维持驳回, 3:超时自动改判通过)',
+    handler_id    bigint                default null comment '处理人（组长/admin；超时自动改判为空）',
+    handle_remark varchar(255)          default null comment '处理备注',
+    handle_time   datetime              default null comment '处理时间',
+    create_time   datetime     default current_timestamp not null comment '提交时间',
+    unique key uk_evidence (evidence_id),
+    index idx_duel_status (duel_id, status)
+) comment='凭证上诉表（互审局专属救济通道）' collate = utf8mb4_unicode_ci;
+
+create table `duel_report`
+(
+    id            bigint auto_increment comment '举报id' primary key,
+    duel_id       bigint       not null comment '被举报死斗id',
+    reporter_id   bigint       not null comment '举报人',
+    evidence_id   bigint       not null comment '关联凭证id',
+    reason        varchar(255) not null comment '举报理由',
+    status        tinyint               default 0 not null comment '状态 (0:待处理, 1:改判通过, 2:维持原判, 3:无法处理（局已结算/成员已离局）)',
+    admin_id      bigint                default null comment '处理admin',
+    handle_remark varchar(255)          default null comment '处理备注（含误判留痕：原审核人及连带组长）',
+    handle_time   datetime              default null comment '处理时间',
+    create_time   datetime     default current_timestamp not null comment '举报时间',
+    unique key uk_duel_reporter (duel_id, reporter_id),
+    index idx_status (status)
+) comment='死斗举报表（组长局驳回直报；互审局上诉维持后可报；每人每局限一次）' collate = utf8mb4_unicode_ci;

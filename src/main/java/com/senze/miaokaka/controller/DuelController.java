@@ -2,14 +2,18 @@ package com.senze.miaokaka.controller;
 
 import com.senze.miaokaka.common.BaseResponse;
 import com.senze.miaokaka.common.ResultUtils;
+import com.senze.miaokaka.model.dto.duel.AppealResolveRequest;
+import com.senze.miaokaka.model.dto.duel.AppealSubmitRequest;
 import com.senze.miaokaka.model.dto.duel.DuelCreateRequest;
 import com.senze.miaokaka.model.dto.duel.DuelUpdateRequest;
 import com.senze.miaokaka.model.dto.duel.ImpeachInitiateRequest;
 import com.senze.miaokaka.model.dto.duel.ImpeachmentVoteRequest;
 import com.senze.miaokaka.model.dto.duel.InviteUseRequest;
 import com.senze.miaokaka.model.dto.duel.JoinApplicationReviewRequest;
+import com.senze.miaokaka.model.dto.duel.ReportSubmitRequest;
 import com.senze.miaokaka.model.dto.duel.ReviewRequest;
 import com.senze.miaokaka.model.entity.User;
+import com.senze.miaokaka.model.vo.AppealPendingVO;
 import com.senze.miaokaka.model.vo.CheckInResultVO;
 import com.senze.miaokaka.model.vo.DuelVO;
 import com.senze.miaokaka.model.vo.InviteInfoVO;
@@ -20,6 +24,7 @@ import com.senze.miaokaka.model.vo.NudgeSentVO;
 import com.senze.miaokaka.model.vo.ReviewHistoryVO;
 import com.senze.miaokaka.model.vo.ReviewItemVO;
 import com.senze.miaokaka.service.DuelBattleService;
+import com.senze.miaokaka.service.DuelAppealService;
 import com.senze.miaokaka.service.DuelImpeachmentService;
 import com.senze.miaokaka.service.DuelInviteService;
 import com.senze.miaokaka.service.DuelService;
@@ -59,6 +64,9 @@ public class DuelController {
 
     @Resource
     private DuelBattleService duelBattleService;
+
+    @Resource
+    private DuelAppealService duelAppealService;
 
     @Resource
     private NudgeService nudgeService;
@@ -252,5 +260,40 @@ public class DuelController {
                                                 HttpServletRequest servletRequest) {
         User user = userService.getLoginUser(servletRequest);
         return ResultUtils.success(duelBattleService.review(user.getId(), duelId, request));
+    }
+
+    @PostMapping("/{duelId}/appeal")
+    @Operation(summary = "凭证上诉", description = "互审局本人被驳回凭证，驳回后 48 小时内可上诉（每凭证限一次）；交组长仲裁，超 48 小时未仲裁自动改判通过")
+    public BaseResponse<Long> appeal(@PathVariable Long duelId,
+                                     @Valid @RequestBody AppealSubmitRequest request,
+                                     HttpServletRequest servletRequest) {
+        User user = userService.getLoginUser(servletRequest);
+        return ResultUtils.success(duelAppealService.appeal(user.getId(), duelId, request));
+    }
+
+    @GetMapping("/{duelId}/appeal/pending")
+    @Operation(summary = "待仲裁上诉列表", description = "仅互审局组长；含凭证图、上诉理由、原驳回理由与仲裁截止时间")
+    public BaseResponse<List<AppealPendingVO>> pendingAppeals(@PathVariable Long duelId,
+                                                              HttpServletRequest servletRequest) {
+        User user = userService.getLoginUser(servletRequest);
+        return ResultUtils.success(duelAppealService.pendingAppeals(user.getId(), duelId));
+    }
+
+    @PostMapping("/{duelId}/appeal/resolve")
+    @Operation(summary = "组长仲裁上诉", description = "改判通过=补回当日份额+补发事件结算（完全等价正常通过）；维持驳回则通知上诉人（其随后可举报）")
+    public BaseResponse<CheckInResultVO> resolveAppeal(@PathVariable Long duelId,
+                                                       @Valid @RequestBody AppealResolveRequest request,
+                                                       HttpServletRequest servletRequest) {
+        User user = userService.getLoginUser(servletRequest);
+        return ResultUtils.success(duelAppealService.resolveAppeal(user.getId(), duelId, request));
+    }
+
+    @PostMapping("/{duelId}/report")
+    @Operation(summary = "举报死斗", description = "组长局驳回直接举报；互审局须上诉被维持后举报；每人每局限一次；由 admin 终裁（可改判）")
+    public BaseResponse<Long> report(@PathVariable Long duelId,
+                                     @Valid @RequestBody ReportSubmitRequest request,
+                                     HttpServletRequest servletRequest) {
+        User user = userService.getLoginUser(servletRequest);
+        return ResultUtils.success(duelAppealService.report(user.getId(), duelId, request));
     }
 }

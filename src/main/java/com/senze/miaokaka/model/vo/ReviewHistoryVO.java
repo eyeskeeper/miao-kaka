@@ -17,6 +17,11 @@ public class ReviewHistoryVO implements Serializable {
     private Long recordId;
 
     /**
+     * 凭证id（上诉/举报入口定位用）
+     */
+    private Long evidenceId;
+
+    /**
      * 提交者
      */
     private Long userId;
@@ -58,6 +63,21 @@ public class ReviewHistoryVO implements Serializable {
     private String aiReason;
 
     private Date reviewTime;
+
+    /**
+     * 该凭证的上诉状态（互审局；null=未上诉）
+     */
+    private Integer appealStatus;
+
+    /**
+     * 上诉理由
+     */
+    private String appealReason;
+
+    /**
+     * 是否已被改判（上诉/举报翻案，公示红标）
+     */
+    private Boolean overturned;
 
     private static final long serialVersionUID = 1L;
 }

@@ -11,12 +11,16 @@ import com.senze.miaokaka.exception.ThrowUtils;
 import com.senze.miaokaka.mapper.CheckInEvidenceMapper;
 import com.senze.miaokaka.mapper.DuelMemberMapper;
 import com.senze.miaokaka.mapper.DuelMapper;
+import com.senze.miaokaka.mapper.DuelReportMapper;
+import com.senze.miaokaka.mapper.EvidenceAppealMapper;
 import com.senze.miaokaka.mapper.UserMapper;
 import com.senze.miaokaka.model.dto.duel.ReviewRequest;
 import com.senze.miaokaka.model.entity.CheckInEvidence;
 import com.senze.miaokaka.model.entity.CheckInRecord;
 import com.senze.miaokaka.model.entity.Duel;
 import com.senze.miaokaka.model.entity.DuelMember;
+import com.senze.miaokaka.model.entity.DuelReport;
+import com.senze.miaokaka.model.entity.EvidenceAppeal;
 import com.senze.miaokaka.model.entity.User;
 import com.senze.miaokaka.model.vo.CheckInResultVO;
 import com.senze.miaokaka.model.vo.ReviewHistoryVO;
@@ -63,6 +67,10 @@ public class DuelBattleServiceImpl extends ServiceImpl<DuelMemberMapper, DuelMem
     private final DuelMemberMapper duelMemberMapper;
 
     private final CheckInEvidenceMapper checkInEvidenceMapper;
+
+    private final EvidenceAppealMapper evidenceAppealMapper;
+
+    private final DuelReportMapper duelReportMapper;
 
     private final UserMapper userMapper;
 
@@ -254,9 +262,24 @@ public class DuelBattleServiceImpl extends ServiceImpl<DuelMemberMapper, DuelMem
         Map<Long, CheckInRecord> records = rows.isEmpty() ? Map.of()
                 : checkInRecordService.listByIds(rows.stream().map(CheckInEvidence::getRecordId).toList())
                 .stream().collect(Collectors.toMap(CheckInRecord::getRecordId, Function.identity()));
+        // 上诉联查（每凭证至多一条），改判/维持状态随审核记录公示
+        Map<Long, EvidenceAppeal> appeals = rows.isEmpty() ? Map.of()
+                : evidenceAppealMapper.selectList(new LambdaQueryWrapper<EvidenceAppeal>()
+                        .eq(EvidenceAppeal::getDuelId, duelId)
+                        .in(EvidenceAppeal::getEvidenceId,
+                                rows.stream().map(CheckInEvidence::getId).toList()))
+                .stream().collect(Collectors.toMap(EvidenceAppeal::getEvidenceId, Function.identity()));
+        // 举报联查：组长局的改判走举报通道（无上诉记录）， overturned 标记需覆盖
+        Map<Long, DuelReport> reports = rows.isEmpty() ? Map.of()
+                : duelReportMapper.selectList(new LambdaQueryWrapper<DuelReport>()
+                        .eq(DuelReport::getDuelId, duelId)
+                        .in(DuelReport::getEvidenceId,
+                                rows.stream().map(CheckInEvidence::getId).toList()))
+                .stream().collect(Collectors.toMap(DuelReport::getEvidenceId, Function.identity(), (a, b) -> a));
         return rows.stream().map(e -> {
             ReviewHistoryVO vo = new ReviewHistoryVO();
             vo.setRecordId(e.getRecordId());
+            vo.setEvidenceId(e.getId());
             vo.setUserId(e.getUserId());
             User submitter = users.get(e.getUserId());
             if (submitter != null) {
@@ -272,6 +295,16 @@ public class DuelBattleServiceImpl extends ServiceImpl<DuelMemberMapper, DuelMem
             vo.setAiSuggestion(e.getAiSuggestion());
             vo.setAiReason(e.getAiReason());
             vo.setReviewTime(e.getReviewTime());
+            EvidenceAppeal appeal = appeals.get(e.getId());
+            if (appeal != null) {
+                vo.setAppealStatus(appeal.getStatus());
+                vo.setAppealReason(appeal.getReason());
+            }
+            DuelReport report = reports.get(e.getId());
+            boolean overturned = (appeal != null && (appeal.getStatus() == DuelConstant.APPEAL_STATUS_OVERTURNED
+                    || appeal.getStatus() == DuelConstant.APPEAL_STATUS_TIMEOUT_OVERTURNED))
+                    || (report != null && report.getStatus() == DuelConstant.REPORT_STATUS_OVERTURNED);
+            vo.setOverturned(overturned);
             CheckInRecord record = records.get(e.getRecordId());
             if (record != null) {
                 vo.setCheckInDate(record.getCheckInDate());
