@@ -66,6 +66,11 @@ public class CheckInEvidence implements Serializable {
     private Long assigneeId;
 
     /**
+     * 是否已被上诉/举报改判（误判计数=同局该原审核人的 overturned 凭证数；审核人保留原判人）
+     */
+    private Integer overturned;
+
+    /**
      * 是否组长自审（公示标记）
      */
     private Integer isSelfReview;

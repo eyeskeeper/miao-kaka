@@ -51,6 +51,11 @@ public class DuelMember implements Serializable {
     private Integer refunded;
 
     /**
+     * 被移除时累计罚没额（解散时按额退还本人，退不完沉没）
+     */
+    private Integer confiscated;
+
+    /**
      * 已确认打卡天数（结算时重算）
      */
     private Integer checkinDays;

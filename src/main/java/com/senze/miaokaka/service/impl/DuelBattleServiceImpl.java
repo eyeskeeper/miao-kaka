@@ -7,6 +7,7 @@ import com.baomidou.mybatisplus.spring.service.impl.ServiceImpl;
 import com.senze.miaokaka.common.ErrorCode;
 import com.senze.miaokaka.constant.CheckInConstant;
 import com.senze.miaokaka.constant.DuelConstant;
+import com.senze.miaokaka.constant.NotificationConstant;
 import com.senze.miaokaka.exception.ThrowUtils;
 import com.senze.miaokaka.mapper.CheckInEvidenceMapper;
 import com.senze.miaokaka.mapper.DuelMemberMapper;
@@ -30,6 +31,7 @@ import com.senze.miaokaka.service.CacheService;
 import com.senze.miaokaka.service.DuelBattleService;
 import com.senze.miaokaka.service.DuelSettlementService;
 import com.senze.miaokaka.service.EvidenceAiPreCheckService;
+import com.senze.miaokaka.service.NotificationService;
 import com.senze.miaokaka.service.StorageService;
 import com.senze.miaokaka.service.StoredImage;
 import com.senze.miaokaka.utils.PeerReviewAssigner;
@@ -81,6 +83,8 @@ public class DuelBattleServiceImpl extends ServiceImpl<DuelMemberMapper, DuelMem
     private final TransactionTemplate transactionTemplate;
 
     private final CacheService cacheService;
+
+    private final NotificationService notificationService;
 
     private final EvidenceAiPreCheckService evidenceAiPreCheckService;
 
@@ -147,8 +151,19 @@ public class DuelBattleServiceImpl extends ServiceImpl<DuelMemberMapper, DuelMem
             applyAiSuggestion(record.getRecordId(), stored.url());
         }
 
-        // AI 建议通过 → 免人工直接通过（两种审核方式一致；AI 不可用/建议驳回/局未开启 → 留待人工）
         CheckInEvidence evidence = getEvidenceByRecord(record.getRecordId());
+
+        // 组内互审：派单到达推送（审核员不用进详情自己发现）
+        if (peerMode && evidence.getAssigneeId() != null) {
+            User submitter = userMapper.selectById(userId);
+            notificationService.notify(evidence.getAssigneeId(), NotificationConstant.TYPE_REVIEW_ASSIGNED,
+                    "待你审核的凭证",
+                    "「" + duel.getDuelName() + "」" + (submitter == null ? "成员" : submitter.getUserName())
+                            + " 提交了今日打卡凭证，今日由你审核；待审超 24 小时将自动通过。",
+                    duelId);
+        }
+
+        // AI 建议通过 → 免人工直接通过（两种审核方式一致；AI 不可用/建议驳回/局未开启 → 留待人工）
         if (evidence.getAiSuggestion() != null && evidence.getAiSuggestion() == 0) {
             CheckInResultVO settled = autoApproveEvidence(evidence,
                     "AI 预审通过：" + StrUtil.blankToDefault(evidence.getAiReason(), "无"));

@@ -51,4 +51,14 @@ public interface NotificationConstant {
      * 上诉处理结果（改判通过/维持驳回，通知上诉人）
      */
     int TYPE_APPEAL_RESOLVED = 9;
+
+    /**
+     * 收到互审派单（有凭证待你审核，通知派单审核人）
+     */
+    int TYPE_REVIEW_ASSIGNED = 10;
+
+    /**
+     * 收到死斗举报（新举报待处理，通知全体 admin）
+     */
+    int TYPE_REPORT_SUBMITTED = 11;
 }

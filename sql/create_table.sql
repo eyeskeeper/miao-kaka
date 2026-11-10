@@ -405,3 +405,7 @@ create table `duel_report`
     unique key uk_duel_reporter (duel_id, reporter_id),
     index idx_status (status)
 ) comment='死斗举报表（组长局驳回直报；互审局上诉维持后可报；每人每局限一次）' collate = utf8mb4_unicode_ci;
+
+-- 审核运营补强（2026-11-09 增补二：派单通知/解散转个人/罚没退还/误判标记与计数）
+alter table `duel_member` add column `confiscated` int not null default 0 comment '被移除时累计罚没额（解散时按额退还本人，退不完沉没）' after `refunded`;
+alter table `check_in_evidence` add column `overturned` tinyint not null default 0 comment '是否已被上诉/举报改判（误判计数=同局该原审核人 overturned 凭证数）' after `assignee_id`;

@@ -321,6 +321,16 @@ public class DuelAppealServiceImpl implements DuelAppealService {
         } catch (DuplicateKeyException e) {
             throw new BusinessException(ErrorCode.OPERATION_ERROR, "每个死斗限举报一次");
         }
+        // 实时推送给全体 admin（否则要进后台才发现举报积压）
+        for (User admin : userMapper.selectList(new LambdaQueryWrapper<User>()
+                .eq(User::getUserRole, "admin")
+                .eq(User::getIsDelete, 0))) {
+            notificationService.notify(admin.getId(), NotificationConstant.TYPE_REPORT_SUBMITTED,
+                    "收到死斗举报",
+                    "「" + duel.getDuelName() + "」成员 " + userNameOf(userId) + " 举报一条被驳回凭证："
+                            + StrUtil.sub(request.getReason(), 0, 60) + "。请进管理后台处理。",
+                    duelId);
+        }
         return report.getId();
     }
 
@@ -395,7 +405,8 @@ public class DuelAppealServiceImpl implements DuelAppealService {
 
     /**
      * 改判通过（组长仲裁 / admin 终裁 / 超时自动共用），须在外层事务内调用：
-     * 凭证 REJECTED→APPROVED（条件更新抢占，审核人=改判人，备注记改判链路）；
+     * 凭证 REJECTED→APPROVED（条件更新抢占，备注记改判链路；reviewerId 保留原判人作误判留痕，
+     * overturned 置 1 供误判计数）；
      * 押金局补回被追回的当日份额（钱包退款 + 成员已退计数等额加回）；
      * 记录恢复为正常并补发一次猫事件结算（与正常审核通过完全等价）。
      */
@@ -404,7 +415,7 @@ public class DuelAppealServiceImpl implements DuelAppealService {
                 .eq(CheckInEvidence::getId, evidence.getId())
                 .eq(CheckInEvidence::getReviewStatus, DuelConstant.REVIEW_STATUS_REJECTED)
                 .set(CheckInEvidence::getReviewStatus, DuelConstant.REVIEW_STATUS_APPROVED)
-                .set(CheckInEvidence::getReviewerId, handlerId)
+                .set(CheckInEvidence::getOverturned, 1)
                 .set(CheckInEvidence::getReviewTime, new Date())
                 .set(CheckInEvidence::getReviewRemark, remark)) == 1;
         ThrowUtils.throwIf(!claimed, ErrorCode.OPERATION_ERROR, "凭证状态已变化，改判失败请刷新");

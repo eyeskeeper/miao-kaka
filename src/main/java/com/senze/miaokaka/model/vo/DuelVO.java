@@ -181,6 +181,11 @@ public class DuelVO implements Serializable {
          */
         private Integer status;
 
+        /**
+         * 本局误判次数（作为原审核人被改判的凭证数，公示）
+         */
+        private Integer misjudgeCount;
+
         private static final long serialVersionUID = 1L;
     }
 

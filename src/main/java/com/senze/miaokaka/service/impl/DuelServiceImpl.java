@@ -24,6 +24,7 @@ import com.senze.miaokaka.model.dto.duel.DuelCreateRequest;
 import com.senze.miaokaka.model.dto.duel.DuelUpdateRequest;
 import com.senze.miaokaka.model.dto.duel.JoinApplicationReviewRequest;
 import com.senze.miaokaka.model.entity.CheckInEvidence;
+import com.senze.miaokaka.model.entity.CatSpirit;
 import com.senze.miaokaka.model.entity.CheckInPlan;
 import com.senze.miaokaka.model.entity.CheckInRecord;
 import com.senze.miaokaka.model.entity.Duel;
@@ -36,6 +37,7 @@ import com.senze.miaokaka.model.vo.DuelAggData;
 import com.senze.miaokaka.model.vo.DuelVO;
 import com.senze.miaokaka.model.vo.JoinRequestVO;
 import com.senze.miaokaka.service.CacheService;
+import com.senze.miaokaka.service.CatSpiritService;
 import com.senze.miaokaka.service.CheckInPlanService;
 import com.senze.miaokaka.service.DuelAppealService;
 import com.senze.miaokaka.service.DuelBattleService;
@@ -95,6 +97,8 @@ public class DuelServiceImpl extends ServiceImpl<DuelMapper, Duel> implements Du
     private final DuelBattleService duelBattleService;
 
     private final DuelAppealService duelAppealService;
+
+    private final CatSpiritService catSpiritService;
 
     private final NotificationService notificationService;
 
@@ -431,8 +435,10 @@ public class DuelServiceImpl extends ServiceImpl<DuelMapper, Duel> implements Du
                 walletService.refund(targetUserId, removalRefund, duelId,
                         "组长移除，退还剩余 " + (duel.getTotalDays() - elapsed) + " 天份额");
                 duel.setRemovedPool((duel.getRemovedPool() == null ? 0 : duel.getRemovedPool()) + confiscated);
+                // 罚没额随成员行留痕：小组解散时按额退还本人（正常结算仍按原口径进奖池分配）
+                member.setConfiscated((member.getConfiscated() == null ? 0 : member.getConfiscated()) + confiscated);
                 refundDesc = "已退还剩余 " + (duel.getTotalDays() - elapsed) + " 天份额 "
-                        + removalRefund + " 喵币，缺勤份额已入奖池";
+                        + removalRefund + " 喵币，缺勤份额暂扣（小组解散时退还）";
             }
             // 被移除通知：与移除同一事务，落库持久（隔天可见）
             User leader = userMapper.selectById(userId);
@@ -475,9 +481,10 @@ public class DuelServiceImpl extends ServiceImpl<DuelMapper, Duel> implements Du
 
     /**
      * 进行中局仅剩一人（必为组长，组长不可被移除）时解散，须在外层事务内调用：
-     * 待审凭证全部自动通过；押金局组长退回剩余押金（押金 − 已按天退还），
-     * removed_pool 不分配——组长无法靠移光成员吞掉他人的罚没份额；
-     * 影子计划下架、进行中弹劾终止、状态置为已解散并通知组长。
+     * 待审凭证全部自动通过；押金局组长退回剩余押金（押金 − 已按天退还）；
+     * removed_pool 按各被移除成员的罚没额比例退还本人（老数据无罚没留痕的份额沉没，
+     * 组长无法靠移光成员吞掉他人的罚没份额）；组长的影子计划转为个人计划继续养猫
+     * （继承共享 BOSS 击杀进度）；进行中弹劾终止、状态置为已解散并通知组长。
      */
     private void dissolveRunningDuel(Duel duel, List<DuelMember> remaining) {
         Long duelId = duel.getId();
@@ -488,25 +495,95 @@ public class DuelServiceImpl extends ServiceImpl<DuelMapper, Duel> implements Du
                 int refunded = last.getRefunded() == null ? 0 : last.getRefunded();
                 int endRefund = Math.max(0, last.getDeposit() - refunded);
                 walletService.refund(last.getUserId(), endRefund, duelId, "小组仅剩一人自动解散，退还剩余押金");
-                refundDesc = "已退还剩余押金 " + endRefund + " 喵币。";
+                refundDesc = "已退还剩余押金 " + endRefund + " 喵币。你的计划已转为个人计划，猫猫保留。";
                 duel.setTotalPool(Math.max(0, duel.getTotalPool() - last.getDeposit()));
+            } else {
+                refundDesc = "你的计划已转为个人计划，猫猫保留。";
             }
             last.setStatus(DuelConstant.MEMBER_STATUS_QUIT);
             duelMemberMapper.updateById(last);
-            checkInPlanService.removeById(last.getPlanId());
+            convertShadowToPersonal(last.getPlanId(), duel);
             notificationService.notify(last.getUserId(), NotificationConstant.TYPE_DUEL_DISBANDED,
                     "死斗已解散",
                     "「" + duel.getDuelName() + "」成员仅剩你一人，小组已自动解散。" + refundDesc,
                     duelId);
         }
+        // 罚没池按被移除成员的罚没留痕比例退还（池=各人罚没之和，正常全额退；尾差沉没）
+        refundRemovedPoolOnDissolve(duel);
         duelImpeachmentService.terminateOnLeaderChange(duelId);
         // 救济通道随局关闭：未决上诉统一失效（维持原判）
         duelAppealService.invalidatePending(duelId);
         duel.setStatus(DuelConstant.DUEL_STATUS_DISBANDED);
         duel.setMemberCount(0);
         updateById(duel);
-        log.info("死斗 {} 进行中仅剩一人自动解散：自动通过待审 {} 条，罚没池 {} 喵币不分配沉没",
+        log.info("死斗 {} 进行中仅剩一人自动解散：自动通过待审 {} 条，剩余罚没池 {} 喵币沉没",
                 duelId, approved, duel.getRemovedPool() == null ? 0 : duel.getRemovedPool());
+    }
+
+    /**
+     * 影子计划转个人计划（解散后组长继续养猫）：来源改个人、解绑死斗、
+     * 继承共享 BOSS 击杀进度（按个人配额封顶）；猫的 BOSS 按个人曲线重置为下一只。
+     */
+    private void convertShadowToPersonal(Long planId, Duel duel) {
+        CheckInPlan plan = checkInPlanService.getById(planId);
+        if (plan == null) {
+            return;
+        }
+        int killed = Math.min(duel.getBossKilled() == null ? 0 : duel.getBossKilled(),
+                plan.getBossQuota() == null ? 0 : plan.getBossQuota());
+        // updateById 忽略 null 字段，duelId 置空须显式 set
+        checkInPlanService.update(new com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper<CheckInPlan>()
+                .eq(CheckInPlan::getId, planId)
+                .set(CheckInPlan::getPlanSource, CheckInConstant.PLAN_SOURCE_PERSONAL)
+                .set(CheckInPlan::getDuelId, null)
+                .set(CheckInPlan::getBossKilled, killed));
+        // 猫的 BOSS：共享血量（×成员数）不可沿用，按个人曲线第 killed+1 只重置满血
+        CatSpirit cat = catSpiritService.getByPlanId(planId);
+        if (cat != null) {
+            int bossHp = GameConstants.BOSS_HP_FIRST + killed * GameConstants.BOSS_HP_STEP;
+            cat.setBossLevel(killed + 1);
+            cat.setBossName(NameLibraryConstant.randomBossName());
+            cat.setBossMaxHp(bossHp);
+            cat.setBossHp(bossHp);
+            catSpiritService.updateById(cat);
+        }
+    }
+
+    /**
+     * 解散时罚没池按各被移除成员的罚没留痕退还：池本就是各人罚没之和，正常全额退；
+     * 老数据（无 confiscated 留痕）对应的份额与整数尾差沉没。
+     */
+    private void refundRemovedPoolOnDissolve(Duel duel) {
+        int pool = duel.getRemovedPool() == null ? 0 : duel.getRemovedPool();
+        if (pool <= 0) {
+            return;
+        }
+        List<DuelMember> removed = duelMemberMapper.selectList(new LambdaQueryWrapper<DuelMember>()
+                .eq(DuelMember::getDuelId, duel.getId())
+                .eq(DuelMember::getStatus, DuelConstant.MEMBER_STATUS_REMOVED));
+        int sumConfiscated = removed.stream()
+                .mapToInt(m -> m.getConfiscated() == null ? 0 : m.getConfiscated()).sum();
+        if (sumConfiscated <= 0) {
+            return;
+        }
+        int refundedTotal = 0;
+        for (int i = 0; i < removed.size(); i++) {
+            DuelMember m = removed.get(i);
+            int share = m.getConfiscated() == null ? 0 : m.getConfiscated();
+            if (share <= 0) {
+                continue;
+            }
+            // 末位拿剩余额兜底，保证退款总额恰为池子且不超发
+            int refund = i == removed.size() - 1
+                    ? pool - refundedTotal
+                    : (int) ((long) share * pool / sumConfiscated);
+            if (refund > 0) {
+                walletService.refund(m.getUserId(), refund, duel.getId(),
+                        "小组解散，退还你被移除时的罚没份额");
+                refundedTotal += refund;
+            }
+        }
+        duel.setRemovedPool(Math.max(0, pool - refundedTotal));
     }
 
     @Override
@@ -886,6 +963,16 @@ public class DuelServiceImpl extends ServiceImpl<DuelMapper, Duel> implements Du
 
         List<DuelVO.MemberVO> memberVOs = new ArrayList<>(agg.getMembers().size());
         DuelVO.MemberVO myMemberVo = null;
+        // 误判计数（实时，改判时逐出聚合缓存）：同局各原审核人的 overturned 凭证数
+        Map<Long, Integer> misjudgeByReviewer = new LinkedHashMap<>();
+        checkInEvidenceMapper.selectMaps(new com.baomidou.mybatisplus.core.conditions.query.QueryWrapper<CheckInEvidence>()
+                        .select("reviewer_id as rid", "count(*) as cnt")
+                        .eq("duel_id", duel.getId())
+                        .eq("overturned", 1)
+                        .groupBy("reviewer_id"))
+                .forEach(row -> misjudgeByReviewer.put(
+                        Long.valueOf(String.valueOf(row.get("rid"))),
+                        Integer.valueOf(String.valueOf(row.get("cnt")))));
         for (DuelAggData.MemberLine line : agg.getMembers()) {
             DuelVO.MemberVO mv = new DuelVO.MemberVO();
             mv.setUserId(line.getUserId());
@@ -895,6 +982,7 @@ public class DuelServiceImpl extends ServiceImpl<DuelMapper, Duel> implements Du
             mv.setDeposit(line.getDeposit());
             mv.setStatus(line.getStatus());
             mv.setDays(line.getDays());
+            mv.setMisjudgeCount(misjudgeByReviewer.getOrDefault(line.getUserId(), 0));
             memberVOs.add(mv);
             if (line.getUserId().equals(userId)) {
                 myMemberVo = mv;
