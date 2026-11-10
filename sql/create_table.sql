@@ -409,3 +409,6 @@ create table `duel_report`
 -- 审核运营补强（2026-11-09 增补二：派单通知/解散转个人/罚没退还/误判标记与计数）
 alter table `duel_member` add column `confiscated` int not null default 0 comment '被移除时累计罚没额（解散时按额退还本人，退不完沉没）' after `refunded`;
 alter table `check_in_evidence` add column `overturned` tinyint not null default 0 comment '是否已被上诉/举报改判（误判计数=同局该原审核人 overturned 凭证数）' after `assignee_id`;
+
+-- 死斗每日缺卡分成（2026-11-10 增补：次日打卡即领昨日缺卡池均分；审核SLA当日化；改判组长扣回；最后一天池结算时发放）
+alter table `duel` add column `daily_shared_out` int not null default 0 comment '每日缺卡分成已发总额（结算池扣减防超发；改判扣回时等额回冲）' after `removed_pool`;

@@ -254,7 +254,7 @@ public class DuelController {
     }
 
     @PostMapping("/{duelId}/review")
-    @Operation(summary = "审核凭证", description = "组长审核局仅组长；组内互审局仅派单审核人；通过触发猫事件结算，驳回必须给理由；待审超 24 小时自动通过")
+    @Operation(summary = "审核凭证", description = "组长审核局仅组长；组内互审局仅派单审核人；通过触发猫事件结算，驳回必须给理由；当日未审完自动通过")
     public BaseResponse<CheckInResultVO> review(@PathVariable Long duelId,
                                                 @Valid @RequestBody ReviewRequest request,
                                                 HttpServletRequest servletRequest) {

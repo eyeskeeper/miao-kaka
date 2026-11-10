@@ -404,6 +404,29 @@ public class DuelAppealServiceImpl implements DuelAppealService {
     // region 内部工具
 
     /**
+     * 该凭证的当日份额是否已随每日缺卡池被分走：凭证日期次日该局存在任一打卡记录
+     * （发放由次日首次打卡触发；SLA 当日化下当日驳回的凭证次日判定时必为 REJECTED 进池）。
+     */
+    private boolean sharedOutToDailyPool(Duel duel, CheckInRecord record) {
+        java.time.LocalDate next = record.getCheckInDate().plusDays(1);
+        if (next.isAfter(duel.getEndDate())) {
+            // 最后一天无次日，最后一天池走结算通道（改判在结算后本就不可能）
+            return false;
+        }
+        List<Long> planIds = duelMemberMapper.selectList(new LambdaQueryWrapper<DuelMember>()
+                        .eq(DuelMember::getDuelId, duel.getId())
+                        .notIn(DuelMember::getStatus, DuelConstant.MEMBER_STATUS_QUIT,
+                                DuelConstant.MEMBER_STATUS_REMOVED))
+                .stream().map(DuelMember::getPlanId).toList();
+        if (planIds.isEmpty()) {
+            return false;
+        }
+        return checkInRecordMapper.selectCount(new LambdaQueryWrapper<CheckInRecord>()
+                .in(CheckInRecord::getPlanId, planIds)
+                .eq(CheckInRecord::getCheckInDate, next)) > 0;
+    }
+
+    /**
      * 改判通过（组长仲裁 / admin 终裁 / 超时自动共用），须在外层事务内调用：
      * 凭证 REJECTED→APPROVED（条件更新抢占，备注记改判链路；reviewerId 保留原判人作误判留痕，
      * overturned 置 1 供误判计数）；
@@ -428,6 +451,21 @@ public class DuelAppealServiceImpl implements DuelAppealService {
             ThrowUtils.throwIf(member == null, ErrorCode.NOT_FOUND_ERROR, "成员已离局，无法改判");
             int daily = member.getDeposit() / duel.getTotalDays();
             if (daily > 0) {
+                // 份额已被每日缺卡池分走（当日驳回 && 次日该局有打卡触发发放）→ 从组长钱包扣回垫付，
+                // 组长对审核质量负总责（自审误判/仲裁失职/不作为全路径一致）；未进池的不扣（结算公式自然回收）
+                if (sharedOutToDailyPool(duel, record)) {
+                    walletService.misjudgeClawback(duel.getLeaderId(), daily, duel.getId(),
+                            "改判垫付扣回：" + record.getCheckInDate() + " 凭证改判通过，缺卡分成已发出");
+                    duelMapper.update(null, new com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper<Duel>()
+                            .eq(com.senze.miaokaka.model.entity.Duel::getId, duel.getId())
+                            .setSql("daily_shared_out = daily_shared_out - " + daily));
+                    notificationService.notify(duel.getLeaderId(), NotificationConstant.TYPE_MISJUDGE_CLAWBACK,
+                            "误判垫付扣回",
+                            "「" + duel.getDuelName() + "」" + record.getCheckInDate()
+                                    + " 被驳回凭证改判通过，该份额已随每日缺卡分成发出，" + daily
+                                    + " 喵币已从你的钱包扣回垫付。",
+                            duel.getId());
+                }
                 walletService.refund(record.getUserId(), daily, duel.getId(), "改判通过，补回当日份额");
                 member.setRefunded((member.getRefunded() == null ? 0 : member.getRefunded()) + daily);
                 duelMemberMapper.updateById(member);

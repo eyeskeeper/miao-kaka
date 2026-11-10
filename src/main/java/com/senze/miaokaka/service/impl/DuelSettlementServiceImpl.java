@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.spring.service.impl.ServiceImpl;
 import com.senze.miaokaka.constant.CheckInConstant;
 import com.senze.miaokaka.constant.DuelConstant;
+import com.senze.miaokaka.constant.NotificationConstant;
 import com.senze.miaokaka.mapper.CheckInEvidenceMapper;
 import com.senze.miaokaka.mapper.CheckInRecordMapper;
 import com.senze.miaokaka.mapper.DuelMapper;
@@ -15,6 +16,7 @@ import com.senze.miaokaka.model.entity.DuelMember;
 import com.senze.miaokaka.service.CacheService;
 import com.senze.miaokaka.service.DuelAppealService;
 import com.senze.miaokaka.service.DuelSettlementService;
+import com.senze.miaokaka.service.NotificationService;
 import com.senze.miaokaka.service.WalletService;
 import com.senze.miaokaka.utils.SettlementCalculator;
 import lombok.RequiredArgsConstructor;
@@ -23,11 +25,15 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import java.time.LocalDate;
+import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
- * 死斗结算实现：幂等、事务、宽容条款（结束时待审核自动通过）
+ * 死斗结算实现：幂等、事务、宽容条款（结束时待审核自动通过）。
+ * 每日缺卡分成：次日打卡即领昨日缺卡池均分（SLA 当日化保证昨日名单次日不可变）。
  *
  * @author <a href="https://github.com/eyeskeeper">冉森</a>
  */
@@ -46,6 +52,8 @@ public class DuelSettlementServiceImpl extends ServiceImpl<DuelMapper, Duel>
     private final WalletService walletService;
 
     private final DuelAppealService duelAppealService;
+
+    private final NotificationService notificationService;
 
     private final TransactionTemplate transactionTemplate;
 
@@ -104,6 +112,83 @@ public class DuelSettlementServiceImpl extends ServiceImpl<DuelMapper, Duel>
         duelMemberMapper.updateById(member);
     }
 
+    @Override
+    public int shareYesterdayPool(Duel duel, DuelMember member) {
+        LocalDate yesterday = LocalDate.now(CheckInConstant.BIZ_ZONE).minusDays(1);
+        // 第一天（及之前）没有昨日池
+        if (yesterday.isBefore(duel.getStartDate())) {
+            return 0;
+        }
+        List<DuelMember> actives = activeMembers(duel.getId());
+        if (actives.isEmpty()) {
+            return 0;
+        }
+        // 昨日有效打卡：有记录且凭证未被驳回（SLA 当日化后昨日凭证此刻只可能是 通过/驳回）
+        Set<Long> validYesterdayUserIds = validCheckersOnDate(duel, actives, yesterday);
+        if (!validYesterdayUserIds.contains(member.getUserId())) {
+            // 昨日缺卡者今日回补：罚没已成定局，不追溯领取（Q1A）
+            return 0;
+        }
+        // 昨日缺卡者：在册 − 有效打卡；池=各缺卡者当日份额之和
+        int pool = actives.stream()
+                .filter(m -> !validYesterdayUserIds.contains(m.getUserId()))
+                .mapToInt(m -> m.getDeposit() / duel.getTotalDays())
+                .sum();
+        if (pool <= 0) {
+            return 0;
+        }
+        int share = pool / validYesterdayUserIds.size();
+        if (share <= 0) {
+            return 0;
+        }
+        int absentees = actives.size() - validYesterdayUserIds.size();
+        walletService.dailyShare(member.getUserId(), share, duel.getId(),
+                "昨日 " + absentees + " 人缺卡，均分 " + share + " 喵币");
+        // 已发总额记账：每次领取只累计本人实发额（原子自增，防结算超发）；
+        // 同时逐出聚合缓存（agg 缓存了 duel 行）
+        baseMapper.update(null, new com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper<Duel>()
+                .eq(Duel::getId, duel.getId())
+                .setSql("daily_shared_out = daily_shared_out + " + share));
+        cacheService.evict(CacheService.keyDuelAgg(duel.getId()));
+        return share;
+    }
+
+    /**
+     * 指定日期的"有效打卡"成员集合：有打卡记录且关联凭证未被驳回。
+     * 待审（当日还没到 SLA 截止）按打卡计——宽容口径与超时自动通过一致。
+     */
+    private Set<Long> validCheckersOnDate(Duel duel, List<DuelMember> actives, LocalDate date) {
+        List<Long> planIds = actives.stream().map(DuelMember::getPlanId).toList();
+        List<CheckInRecord> records = checkInRecordMapper.selectList(
+                new LambdaQueryWrapper<CheckInRecord>()
+                        .in(CheckInRecord::getPlanId, planIds)
+                        .eq(CheckInRecord::getCheckInDate, date));
+        if (records.isEmpty()) {
+            return Set.of();
+        }
+        // 被驳回的记录剔除（驳回=当日缺卡）
+        Set<Long> rejectedRecordIds = checkInEvidenceMapper.selectList(
+                        new LambdaQueryWrapper<CheckInEvidence>()
+                                .in(CheckInEvidence::getRecordId,
+                                        records.stream().map(CheckInRecord::getRecordId).toList())
+                                .eq(CheckInEvidence::getReviewStatus, DuelConstant.REVIEW_STATUS_REJECTED))
+                .stream().map(CheckInEvidence::getRecordId).collect(Collectors.toSet());
+        java.util.Map<Long, Long> recordToUser = records.stream()
+                .collect(Collectors.toMap(CheckInRecord::getRecordId, CheckInRecord::getUserId));
+        return records.stream()
+                .map(CheckInRecord::getRecordId)
+                .filter(rid -> !rejectedRecordIds.contains(rid))
+                .map(recordToUser::get)
+                .collect(Collectors.toSet());
+    }
+
+    private List<DuelMember> activeMembers(Long duelId) {
+        return duelMemberMapper.selectList(new LambdaQueryWrapper<DuelMember>()
+                .eq(DuelMember::getDuelId, duelId)
+                .notIn(DuelMember::getStatus, DuelConstant.MEMBER_STATUS_QUIT,
+                        DuelConstant.MEMBER_STATUS_REMOVED));
+    }
+
     private Boolean doSettle(Long duelId, LocalDate today) {
         // 幂等闸门：条件更新抢占结算权，并发下只有一个事务能成功
         boolean claimed = update(new com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper<Duel>()
@@ -159,7 +244,16 @@ public class DuelSettlementServiceImpl extends ServiceImpl<DuelMapper, Duel>
             stakes.add(new SettlementCalculator.MemberStake(member.getUserId(), member.getDeposit(), days));
         }
 
-        int totalPool = confiscatedSum + (duel.getRemovedPool() == null ? 0 : duel.getRemovedPool());
+        // 最后一天缺卡池：无"次日打卡"发放通道，结算时均分给最后一天打卡者并入账+通知
+        int lastDayShared = shareLastDayPool(duel, members);
+
+        int totalPool = confiscatedSum + (duel.getRemovedPool() == null ? 0 : duel.getRemovedPool())
+                - (duel.getDailySharedOut() == null ? 0 : duel.getDailySharedOut()) - lastDayShared;
+        if (totalPool < 0) {
+            // 防线：理论上改判垫付扣回已闭环账目；负值说明有异常路径，截断并告警供人工对账
+            log.warn("死斗 {} 结算池为负（{}），按 0 截断，请人工对账", duelId, totalPool);
+            totalPool = 0;
+        }
         SettlementCalculator.SplitResult split =
                 SettlementCalculator.splitByDays(totalPool, stakes);
         for (SettlementCalculator.MemberStake stake : stakes) {
@@ -171,6 +265,51 @@ public class DuelSettlementServiceImpl extends ServiceImpl<DuelMapper, Duel>
         }
         memberSettled(members);
         return true;
+    }
+
+    /**
+     * 最后一天缺卡池（须在 autoApprovePending 之后：pending 已视为通过）：
+     * 缺卡者=在册且 endDate 无记录 ∪ 凭证已驳回；池=各缺卡者当日份额之和，
+     * 均分给最后一天有效打卡者，入账+站内通知（无次日打卡通道，通知即凭证）。
+     * 返回实发总额（从总结算池扣减防超发）。
+     */
+    private int shareLastDayPool(Duel duel, List<DuelMember> members) {
+        // 押金局才有池（组队局 deposit=0 池恒 0）
+        if (members.stream().noneMatch(m -> m.getDeposit() / duel.getTotalDays() > 0)) {
+            return 0;
+        }
+        Set<Long> validLastDay = validCheckersOnDate(duel, members, duel.getEndDate());
+        if (validLastDay.isEmpty()) {
+            return 0;
+        }
+        int absentees = (int) members.stream()
+                .filter(m -> !validLastDay.contains(m.getUserId())).count();
+        if (absentees == 0) {
+            return 0;
+        }
+        int pool = members.stream()
+                .filter(m -> !validLastDay.contains(m.getUserId()))
+                .mapToInt(m -> m.getDeposit() / duel.getTotalDays())
+                .sum();
+        int share = pool / validLastDay.size();
+        if (share <= 0) {
+            return 0;
+        }
+        for (DuelMember m : members) {
+            if (validLastDay.contains(m.getUserId())) {
+                walletService.dailyShare(m.getUserId(), share, duel.getId(),
+                        "最后一天 " + absentees + " 人缺卡，均分 " + share + " 喵币");
+                notificationService.notify(m.getUserId(), NotificationConstant.TYPE_LASTDAY_SHARE,
+                        "最后一天缺卡分成",
+                        "「" + duel.getDuelName() + "」最后一天有 " + absentees
+                                + " 人缺卡，你分得 " + share + " 喵币，已入账。",
+                        duel.getId());
+            }
+        }
+        int sharedTotal = share * validLastDay.size();
+        log.info("死斗 {} 最后一天缺卡池：{} 喵币，实发 {}（{} 人均分）",
+                duel.getId(), pool, sharedTotal, validLastDay.size());
+        return sharedTotal;
     }
 
     /**

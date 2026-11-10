@@ -118,6 +118,32 @@ public class WalletServiceImpl extends ServiceImpl<CoinTransactionMapper, CoinTr
     }
 
     @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void dailyShare(Long userId, int amount, Long duelId, String note) {
+        if (amount <= 0) {
+            return;
+        }
+        addBalance(userId, amount);
+        record(userId, DuelConstant.COIN_TX_DAILY_SHARE, amount, duelId, note);
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void misjudgeClawback(Long userId, int amount, Long duelId, String note) {
+        if (amount <= 0) {
+            return;
+        }
+        // 无条件扣减：组长垫付场景允许余额为负（与驳回追回同口径）
+        LambdaUpdateWrapper<User> uw = new LambdaUpdateWrapper<>();
+        uw.eq(User::getId, userId)
+                .setSql("miao_coins = miao_coins - " + amount);
+        int rows = userMapper.update(null, uw);
+        ThrowUtils.throwIf(rows == 0, ErrorCode.NOT_FOUND_ERROR, "用户不存在");
+        cacheService.evict(CacheService.keyUser(userId));
+        record(userId, DuelConstant.COIN_TX_MISJUDGE_CLAWBACK, -amount, duelId, note);
+    }
+
+    @Override
     public int getBalance(Long userId) {
         User user = userMapper.selectById(userId);
         ThrowUtils.throwIf(user == null, ErrorCode.NOT_FOUND_ERROR, "用户不存在");

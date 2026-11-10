@@ -61,4 +61,14 @@ public interface NotificationConstant {
      * 收到死斗举报（新举报待处理，通知全体 admin）
      */
     int TYPE_REPORT_SUBMITTED = 11;
+
+    /**
+     * 误判垫付扣回（改判通过且份额已被每日池分走，从组长钱包扣回等额）
+     */
+    int TYPE_MISJUDGE_CLAWBACK = 12;
+
+    /**
+     * 最后一天缺卡分成（结算时发放给最后一天打卡者）
+     */
+    int TYPE_LASTDAY_SHARE = 13;
 }

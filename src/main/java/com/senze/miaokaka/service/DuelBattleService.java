@@ -37,7 +37,7 @@ public interface DuelBattleService {
     CheckInResultVO review(Long userId, Long duelId, ReviewRequest request);
 
     /**
-     * 超时兜底：进行中局提交超 24 小时仍待审的凭证自动通过，返回处理条数（定时任务每小时调用）
+     * 超时兜底（SLA 当日化）：今日 00:00 前创建的待审凭证自动通过，返回处理条数（定时任务每小时调用）
      */
     int autoApproveOverdue();
 

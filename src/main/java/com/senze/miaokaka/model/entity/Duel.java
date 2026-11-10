@@ -148,6 +148,11 @@ public class Duel implements Serializable {
     private Integer removedPool;
 
     /**
+     * 每日缺卡分成已发总额（结算池扣减防超发；改判垫付扣回时等额回冲）
+     */
+    private Integer dailySharedOut;
+
+    /**
      * 结算是否完成（幂等标记）
      */
     private Integer settled;

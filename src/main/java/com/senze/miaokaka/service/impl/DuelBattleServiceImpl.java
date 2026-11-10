@@ -109,6 +109,8 @@ public class DuelBattleServiceImpl extends ServiceImpl<DuelMemberMapper, DuelMem
         // 存凭证（原图+服务端压缩预览图，校验格式/大小）
         StoredImage stored = storageService.storeImage(image);
         boolean peerMode = isPeerMode(duel);
+        // lambda 内带回昨日分成（0=无资格/无池）
+        int[] yesterdayShare = {0};
 
         // 打卡记录（待审核态，唯一键防重复）+ 凭证 + 当日奖励即发，同事务：
         // 打卡立刻拿当日份额，审核驳回再追回（用户体验优先的激励时序）
@@ -141,8 +143,9 @@ public class DuelBattleServiceImpl extends ServiceImpl<DuelMemberMapper, DuelMem
                 evidence.setAssigneeId(assignee == null ? null : assignee.getUserId());
             }
             checkInEvidenceMapper.insert(evidence);
-            // 当日奖励即发
+            // 当日奖励即发 + 昨日缺卡分成（昨日有效打卡者才有资格领）
             duelSettlementService.dailyRefund(duel, member);
+            yesterdayShare[0] = duelSettlementService.shareYesterdayPool(duel, member);
             return r;
         });
 
@@ -159,7 +162,7 @@ public class DuelBattleServiceImpl extends ServiceImpl<DuelMemberMapper, DuelMem
             notificationService.notify(evidence.getAssigneeId(), NotificationConstant.TYPE_REVIEW_ASSIGNED,
                     "待你审核的凭证",
                     "「" + duel.getDuelName() + "」" + (submitter == null ? "成员" : submitter.getUserName())
-                            + " 提交了今日打卡凭证，今日由你审核；待审超 24 小时将自动通过。",
+                            + " 提交了今日打卡凭证，今日由你审核；当日未审完将自动通过。",
                     duelId);
         }
 
@@ -168,20 +171,29 @@ public class DuelBattleServiceImpl extends ServiceImpl<DuelMemberMapper, DuelMem
             CheckInResultVO settled = autoApproveEvidence(evidence,
                     "AI 预审通过：" + StrUtil.blankToDefault(evidence.getAiReason(), "无"));
             if (settled != null) {
+                if (yesterdayShare[0] > 0) {
+                    settled.setCoinReward((settled.getCoinReward() == null ? 0 : settled.getCoinReward()) + yesterdayShare[0]);
+                    settled.setEventDesc(StrUtil.blankToDefault(settled.getEventDesc(), "")
+                            + " 昨日缺卡分成 +" + yesterdayShare[0] + " 喵币。");
+                }
                 return settled;
             }
         }
 
         CheckInResultVO vo = pendingResult(record);
+        String shareNote = yesterdayShare[0] > 0 ? " 昨日缺卡分成 +" + yesterdayShare[0] + " 喵币已到账。" : "";
+        if (yesterdayShare[0] > 0) {
+            vo.setCoinReward(yesterdayShare[0]);
+        }
         if (peerMode) {
             String assigneeName = userNameOf(evidence.getAssigneeId());
-            vo.setEventDesc(assigneeName == null
+            vo.setEventDesc((assigneeName == null
                     ? "凭证已提交，等待审核；当日奖励已到账，若被驳回将追回。"
-                    : "凭证已提交，等待「" + assigneeName + "」审核；当日奖励已到账，若被驳回将追回。");
+                    : "凭证已提交，等待「" + assigneeName + "」审核；当日奖励已到账，若被驳回将追回。") + shareNote);
         } else if (duel.getLeaderId().equals(userId)) {
-            vo.setEventDesc("凭证已提交。你是组长，请在审核列表中自审（将公示为自审记录）。");
+            vo.setEventDesc("凭证已提交。你是组长，请在审核列表中自审（将公示为自审记录）。" + shareNote);
         } else {
-            vo.setEventDesc("凭证已提交，当日奖励已到账；若审核被驳回将追回当日奖励。");
+            vo.setEventDesc("凭证已提交，当日奖励已到账；若审核被驳回将追回当日奖励。" + shareNote);
         }
         return vo;
     }
@@ -403,7 +415,10 @@ public class DuelBattleServiceImpl extends ServiceImpl<DuelMemberMapper, DuelMem
 
     @Override
     public int autoApproveOverdue() {
-        java.util.Date cutoff = new java.util.Date(System.currentTimeMillis() - 24L * 3600 * 1000);
+        // SLA 当日化：今日 00:00 之前创建的待审凭证全部自动通过——
+        // 任何凭证活不过提交当天，昨日出勤名单次日完全不可变（每日缺卡分成的稳定前提）
+        LocalDate today = LocalDate.now(CheckInConstant.BIZ_ZONE);
+        java.util.Date cutoff = java.util.Date.from(today.atStartOfDay(CheckInConstant.BIZ_ZONE).toInstant());
         // 分批扫：每轮最多 200 条，防极端积压拖长事务
         List<CheckInEvidence> overdue = checkInEvidenceMapper.selectList(
                 new LambdaQueryWrapper<CheckInEvidence>()
@@ -418,13 +433,13 @@ public class DuelBattleServiceImpl extends ServiceImpl<DuelMemberMapper, DuelMem
             if (duel == null || duel.getStatus() != DuelConstant.DUEL_STATUS_RUNNING) {
                 continue;
             }
-            CheckInResultVO settled = autoApproveEvidence(evidence, "审核超时 24 小时，自动通过");
+            CheckInResultVO settled = autoApproveEvidence(evidence, "当日未审完，自动通过");
             if (settled != null) {
                 approved++;
             }
         }
         if (approved > 0) {
-            log.info("超时自动通过 {} 条待审凭证", approved);
+            log.info("当日未审完自动通过 {} 条待审凭证", approved);
         }
         return approved;
     }

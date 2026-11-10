@@ -47,6 +47,16 @@ public interface WalletService extends IService<CoinTransaction> {
     void clawbackDaily(Long userId, int amount, Long duelId);
 
     /**
+     * 每日缺卡分成发放（次日打卡即领昨日缺卡池均分；正额收益，与押金返还是两条流水）
+     */
+    void dailyShare(Long userId, int amount, Long duelId, String note);
+
+    /**
+     * 误判垫付扣回（改判通过且份额已被每日池分走，从组长钱包扣回；无条件扣减允许为负）
+     */
+    void misjudgeClawback(Long userId, int amount, Long duelId, String note);
+
+    /**
      * 当前余额
      */
     int getBalance(Long userId);

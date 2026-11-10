@@ -33,4 +33,10 @@ public interface DuelSettlementService {
      * 凭证驳回追回：扣回打卡时已发放的当日份额（允许余额临时为负，保证账目精确）
      */
     void clawbackDaily(Duel duel, DuelMember member);
+
+    /**
+     * 每日缺卡分成：打卡时领取昨日缺卡池的均分（昨日有效打卡者才有资格；
+     * 第一天/组队局/无人缺卡返回 0）。须在打卡事务内调用。
+     */
+    int shareYesterdayPool(Duel duel, DuelMember member);
 }

@@ -83,6 +83,8 @@ public interface DuelConstant {
     int COIN_TX_DAILY_REFUND = 5;
     int COIN_TX_DAILY_CLAWBACK = 6;
     int COIN_TX_CHECKIN = 7;
+    int COIN_TX_DAILY_SHARE = 8;
+    int COIN_TX_MISJUDGE_CLAWBACK = 9;
 
     // endregion
 
