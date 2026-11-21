@@ -93,6 +93,12 @@ public class DuelVO implements Serializable {
     private Long myPlanId;
 
     /**
+     * 今日是否已提交打卡凭证（任意状态：待审/通过/驳回；进行中成员视角）——
+     * 前端据此在重进页面后恢复"已提交待审核"态并冻结任务勾选
+     */
+    private Boolean myTodaySubmitted;
+
+    /**
      * 我的加入申请状态：null 无申请 / 0 待审 / 1 已通过 / 2 已拒绝（本人最新一条申请，实时查）
      */
     private Integer myApplyStatus;

@@ -1023,6 +1023,15 @@ public class DuelServiceImpl extends ServiceImpl<DuelMapper, Duel> implements Du
         if (mine != null && mine.getStatus() != DuelConstant.MEMBER_STATUS_QUIT) {
             vo.setMyStatus(mine.getStatus());
             vo.setMyPlanId(mine.getPlanId());
+            // 今日是否已提交凭证（任意状态）：重进页面恢复"已提交待审核"态、冻结任务勾选
+            if (aggDuel.getStatus() == DuelConstant.DUEL_STATUS_RUNNING
+                    && mine.getStatus() != DuelConstant.MEMBER_STATUS_REMOVED) {
+                vo.setMyTodaySubmitted(checkInRecordMapper.selectCount(
+                        new LambdaQueryWrapper<CheckInRecord>()
+                                .eq(CheckInRecord::getPlanId, mine.getPlanId())
+                                .eq(CheckInRecord::getCheckInDate,
+                                        LocalDate.now(CheckInConstant.BIZ_ZONE))) > 0);
+            }
         }
         // 我的加入申请状态（实时查询，个性化字段）：null 无申请 / 0 待审 / 1 已通过 / 2 已拒绝
         List<DuelJoinRequest> myRequests = duelJoinRequestMapper.selectList(
